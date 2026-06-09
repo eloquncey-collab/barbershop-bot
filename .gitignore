@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Env / secrets
+.env
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.json
+data/*.bak
+
+# Backups
+backups/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
