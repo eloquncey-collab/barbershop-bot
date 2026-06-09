@@ -171,11 +171,13 @@ async def cb_book(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text(
                 messages.RATE_LIMIT,
                 reply_markup=keyboards.back_to_main_kb(),
+                parse_mode="HTML",
             )
         except Exception:
             await callback.message.answer(
                 messages.RATE_LIMIT,
                 reply_markup=keyboards.back_to_main_kb(),
+                parse_mode="HTML",
             )
         await callback.answer()
         return
