@@ -194,9 +194,18 @@ async def main():
     health = await get_health_status()
     logger.info(f"Health: {health}")
 
+    # CONFLICT FIX: сбрасываем webhook и старые апдейты перед стартом поллинга.
+    # Если бот запускается повторно (Railway redeploy / restart), это устраняет
+    # "TelegramConflictError: terminated by other getUpdates request".
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook deleted, pending updates dropped")
+    except Exception as e:
+        logger.warning(f"delete_webhook failed (non-critical): {e}")
+
     try:
         logger.info("Starting polling...")
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         shutdown_scheduler()
         await bot.session.close()
