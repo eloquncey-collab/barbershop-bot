@@ -4,6 +4,7 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ErrorEvent
 from aiogram.fsm.context import FSMContext
+from aiogram.filters import StateFilter
 from config import BOT_TOKEN, load_config_from_db, save_config_to_db
 from storage import init_db, delete_old_scheduler_jobs
 from scheduler import start_scheduler, shutdown_scheduler
@@ -85,27 +86,18 @@ async def main():
     dp.include_router(info_router)
     dp.include_router(admin_router)
 
-    # TASK-01: Fallback handler for "lost" FSM states after restart
-    @dp.message(F.text, ~F.text.regexp(r"^/"))
+    # FIX BUG-1/2/3: Fallback только когда нет активного FSM-state.
+    # Без StateFilter(None) этот хендлер (зарегистрирован на dp напрямую)
+    # перехватывает ВСЕ текстовые сообщения до sub-router'ов (booking, admin),
+    # что ломало ввод имени на шаге 5/5 и все FSM-формы в admin-панели.
+    @dp.message(F.text, ~F.text.regexp(r"^/"), StateFilter(None))
     async def fsm_fallback_handler(message: Message, state: FSMContext):
-        """Handle messages when user is in unknown/stale FSM state"""
-        current_state = await state.get_state()
-        if current_state:
-            logger.warning(f"User {message.from_user.id} in stale state: {current_state}")
-            await state.clear()
-            await message.answer(
-                f"{E.INFO} <b>Сессия устарела</b>\n\n"
-                "Бот был перезапущен, ваша предыдущая сессия сброшена.\n"
-                "Пожалуйста, начните заново с /start",
-                parse_mode="HTML",
-                reply_markup=keyboards.back_to_main_kb()
-            )
-        else:
-            await message.answer(
-                f"{E.INFO} Напишите /start для начала работы.",
-                reply_markup=keyboards.back_to_main_kb(),
-                parse_mode="HTML"
-            )
+        """Отвечает только когда у пользователя нет активного FSM-состояния."""
+        await message.answer(
+            f"{E.INFO} Напишите /start для начала работы.",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent):
