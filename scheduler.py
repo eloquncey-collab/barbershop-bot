@@ -85,7 +85,7 @@ async def send_reminder_2h(bot, booking: dict):
         await bot.send_message(
             booking["telegram_id"],
             text,
-            reply_markup=keyboards.remind_cancel_kb(booking["id"]),
+            reply_markup=keyboards.remind_2h_kb(booking["id"]),
             parse_mode="HTML",
         )
     except Exception as e:

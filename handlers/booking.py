@@ -836,6 +836,27 @@ async def cb_remind_cancel(callback: CallbackQuery, bot: Bot):
             await callback.message.edit_text(messages.BOOKING_CANCELLED, parse_mode="HTML")
         except Exception:
             await callback.message.answer(messages.BOOKING_CANCELLED, parse_mode="HTML")
+        # Уведомляем админа если отмена менее чем за 2 часа
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(config.TIMEZONE)
+            visit_dt = datetime.strptime(f"{booking['date']} {booking['time']}", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+            now = datetime.now(tz)
+            if visit_dt - now <= timedelta(hours=2):
+                admin_text = messages.CANCEL_LAST_MINUTE_ADMIN.format(
+                    name=html.escape(booking.get("name", "Неизвестно")),
+                    date=html.escape(keyboards._format_date(booking["date"])),
+                    time=html.escape(booking["time"]),
+                    master=html.escape(booking["master"]),
+                )
+                for admin_id in config.ADMIN_IDS:
+                    try:
+                        await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Failed to notify admin {admin_id} last-minute cancel: {e}")
+        except Exception as e:
+            logger.error(f"Last-minute cancel admin notify error: {e}")
+
         waitlist = await storage.get_waitlist_for_slot(booking["date"], booking["time"], booking["master"])
         for wl in waitlist:
             try:

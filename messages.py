@@ -136,10 +136,20 @@ REMINDER_24H = (
 )
 
 REMINDER_2H = (
-    f"{E.EXCLAMATION} <b>Напоминание</b>\n\n"
-    f"Ваша запись <b>через 2 часа</b> — {{time}}\n"
+    f"{E.FIRE} <b>Скоро у вас запись!</b>\n\n"
+    f"Осталось <b>2 часа</b> — {{time}}\n"
     f"{E.SCISSORS} <b>Мастер:</b> {{master}}\n\n"
-    "Ждём вас!"
+    "Подтвердите присутствие — мы вас ждём!\n\n"
+    f"{E.INFO} <i>Если планы изменились — зайдите в «Мои записи».</i>"
+)
+
+CANCEL_LAST_MINUTE_ADMIN = (
+    f"{E.EXCLAMATION} <b>Отмена за 2 часа — слот свободен!</b>\n\n"
+    f"{E.USER} <b>Клиент:</b> {{name}}\n"
+    f"{E.CALENDAR} <b>Дата:</b> {{date}}\n"
+    f"{E.CLOCK} <b>Время:</b> {{time}}\n"
+    f"{E.SCISSORS} <b>Мастер:</b> {{master}}\n\n"
+    "Можно предложить это время другому клиенту."
 )
 
 REQUEST_REVIEW = (
