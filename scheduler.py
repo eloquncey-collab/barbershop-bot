@@ -1,6 +1,7 @@
 import html
 import logging
 import asyncio
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -70,6 +71,10 @@ async def send_reminder_24h(bot, booking: dict):
             reply_markup=keyboards.remind_kb(booking["id"]),
             parse_mode="HTML",
         )
+    except TelegramForbiddenError:
+        logger.warning(f"User blocked bot - 24h reminder skipped")
+    except TelegramRetryAfter as e:
+        logger.warning(f"Rate limited {e.retry_after}s - 24h reminder skipped")
     except Exception as e:
         logger.error(f"Failed to send 24h reminder: {e}")
 
@@ -88,6 +93,10 @@ async def send_reminder_2h(bot, booking: dict):
             reply_markup=keyboards.remind_2h_kb(booking["id"]),
             parse_mode="HTML",
         )
+    except TelegramForbiddenError:
+        logger.warning(f"User blocked bot - 2h reminder skipped")
+    except TelegramRetryAfter as e:
+        logger.warning(f"Rate limited {e.retry_after}s - 2h reminder skipped")
     except Exception as e:
         logger.error(f"Failed to send 2h reminder: {e}")
 
@@ -125,6 +134,7 @@ async def schedule_reminders(bot, booking: dict):
         reminder_24h = visit_datetime - timedelta(hours=24)
         if reminder_24h > now:
             job_id = f"reminder_24h_{booking['id']}"
+            await _save_job(job_id, reminder_24h.isoformat(), "reminder_24h", booking["id"])
             scheduler.add_job(
                 send_reminder_24h,
                 trigger=DateTrigger(run_date=reminder_24h),
@@ -132,12 +142,12 @@ async def schedule_reminders(bot, booking: dict):
                 id=job_id,
                 replace_existing=True,
             )
-            await _save_job(job_id, reminder_24h.isoformat(), "reminder_24h", booking["id"])
             logger.info(f"Scheduled 24h reminder for booking {booking['id']} at {reminder_24h}")
 
         reminder_2h = visit_datetime - timedelta(hours=2)
         if reminder_2h > now:
             job_id = f"reminder_2h_{booking['id']}"
+            await _save_job(job_id, reminder_2h.isoformat(), "reminder_2h", booking["id"])
             scheduler.add_job(
                 send_reminder_2h,
                 trigger=DateTrigger(run_date=reminder_2h),
@@ -145,12 +155,12 @@ async def schedule_reminders(bot, booking: dict):
                 id=job_id,
                 replace_existing=True,
             )
-            await _save_job(job_id, reminder_2h.isoformat(), "reminder_2h", booking["id"])
             logger.info(f"Scheduled 2h reminder for booking {booking['id']} at {reminder_2h}")
 
         # Auto-complete booking 30 minutes after visit time
         completion_time = visit_datetime + timedelta(minutes=30)
         job_id = f"auto_complete_{booking['id']}"
+        await _save_job(job_id, completion_time.isoformat(), "auto_complete", booking["id"])
         scheduler.add_job(
             auto_complete_booking,
             trigger=DateTrigger(run_date=completion_time),
@@ -158,11 +168,11 @@ async def schedule_reminders(bot, booking: dict):
             id=job_id,
             replace_existing=True,
         )
-        await _save_job(job_id, completion_time.isoformat(), "auto_complete", booking["id"])
         logger.info(f"Scheduled auto-completion for booking {booking['id']} at {completion_time}")
 
         review_time = visit_datetime + timedelta(hours=3)
         job_id = f"review_{booking['id']}"
+        await _save_job(job_id, review_time.isoformat(), "review", booking["id"])
         scheduler.add_job(
             send_review_request,
             trigger=DateTrigger(run_date=review_time),
@@ -170,7 +180,6 @@ async def schedule_reminders(bot, booking: dict):
             id=job_id,
             replace_existing=True,
         )
-        await _save_job(job_id, review_time.isoformat(), "review", booking["id"])
         logger.info(f"Scheduled review request for booking {booking['id']} at {review_time}")
 
     except Exception as e:

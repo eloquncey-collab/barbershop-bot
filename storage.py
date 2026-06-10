@@ -494,7 +494,7 @@ async def has_active_booking(telegram_id: int) -> bool:
             (telegram_id, get_now(config.TIMEZONE).strftime("%Y-%m-%d")),
         )
         count = (await cursor.fetchone())[0]
-        return count > 0
+        return count >= 3  # Task 8: до 3 активных записей (was: count > 0 = max 1)
 
 
 async def get_upcoming_bookings() -> list[dict]:
@@ -955,6 +955,45 @@ async def set_master_services(master_name: str, services: list[str]) -> bool:
 
 
 # TASK-07: Referral system functions
+
+async def create_slot_lock(date: str, time: str, master: str, ttl_minutes: int = 5):
+    """Создаёт временную блокировку слота при выборе времени — Task 6"""
+    try:
+        async with aiosqlite.connect(config.DB_PATH) as db:
+            now = get_now(config.TIMEZONE)
+            locked_at = now.isoformat()
+            expires_at = (now + timedelta(minutes=ttl_minutes)).isoformat()
+            await db.execute(
+                "INSERT OR REPLACE INTO slot_locks (date, time, master, locked_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                (date, time, master, locked_at, expires_at)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create slot_lock {date}/{time}/{master}: {e}")
+
+
+async def release_slot_lock(date: str, time: str, master: str):
+    """Снимает блокировку слота (TTL сам истечёт, но можно снять раньше) — Task 6"""
+    try:
+        async with aiosqlite.connect(config.DB_PATH) as db:
+            await db.execute(
+                "DELETE FROM slot_locks WHERE date=? AND time=? AND master=?",
+                (date, time, master)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to release slot_lock {date}/{time}/{master}: {e}")
+
+
+async def get_user_waitlist_count(telegram_id: int) -> int:
+    """Task 15: Проверяет количество активных записей в листе ожидания"""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM waitlist WHERE telegram_id=? AND status='waiting'",
+            (telegram_id,)
+        )
+        return (await cursor.fetchone())[0]
+
 
 async def get_user_by_ref_code(ref_code: str) -> dict | None:
     """Get user by referral code"""

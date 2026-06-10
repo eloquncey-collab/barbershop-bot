@@ -101,13 +101,13 @@ SLOT_BUSY = (
 
 RATE_LIMIT = (
     f"{E.EXCLAMATION} <b>Превышен лимит попыток.</b>\n\n"
-    "Попробуйте через час."
+    "Попробуйте через 30 минут."
 )
 
 ONE_ACTIVE_BOOKING = (
-    f"{E.EXCLAMATION} <b>У вас уже есть активная запись.</b>\n\n"
+    f"{E.EXCLAMATION} <b>У вас уже 3 активных записи (максимум).</b>\n\n"
     "Просмотреть записи — «Мои записи».\n"
-    "Отменить — в меню записи."
+    "Отменить — нажмите «Мои записи» → выберите запись → «Отменить запись»."
 )
 
 NO_ACTIVE_BOOKING ="У вас нет активных записей."
@@ -137,7 +137,7 @@ REMINDER_24H = (
 
 REMINDER_2H = (
     f"{E.EXCLAMATION} <b>Скоро у вас запись!</b>\n\n"
-    f"Осталось <b>2 часа</b> — {{time}}\n"
+    f"Дата: <b>{{date}}</b>, осталось <b>2 часа</b> — {{time}}\n"
     f"{E.SCISSORS} <b>Мастер:</b> {{master}}\n\n"
     "Подтвердите присутствие — мы вас ждём!\n\n"
     f"{E.INFO} <i>Если планы изменились — зайдите в «Мои записи».</i>"
@@ -202,7 +202,7 @@ ADMIN_BOOKING_NOTIFY = (
     f"{E.BARBER} <b>Услуга:</b> {{service}}\n"
     f"{E.CALENDAR} <b>Дата:</b> {{date}}\n"
     f"{E.CLOCK} <b>Время:</b> {{time}}\n"
-    f"{E.MONEY} <b>Стоимость:</b> {{price}} ₸"
+    f"{E.MONEY} <b>Стоимость:</b> {{price:,}} ₸".replace(",", " ")
 )
 
 ADMIN_CANCEL_NOTIFY = (
@@ -224,12 +224,15 @@ ADMIN_EXPORT = f"{E.CHECK} Экспорт завершён. Файл: <code>{{fi
 # BUG-F FIX: Use plain emoji for show_alert contexts
 ADMIN_ONLY = "🔒 Команда доступна только администратору."
 
-ABOUT = (
-    f"{E.BARBER} <b>Barbershop «Острый»</b>\n\n"
-    "Современный барбершоп в центре Астаны.\n"
-    f"{E.STAR} Профессиональные мастера с опытом от 3 лет.\n"
-    f"{E.SCISSORS} Мужские стрижки, уход за бородой, окрашивание."
-)
+def get_about_text() -> str:
+    import config as _cfg
+    return (
+        f"{E.BARBER} <b>{_cfg.BARBERSHOP_NAME}</b>\n\n"
+        f"{E.LOCATION} {_cfg.BARBERSHOP_ADDRESS}\n"
+        f"{E.PHONE} {_cfg.BARBERSHOP_PHONE}\n"
+        f"{E.CLOCK} {_cfg.BARBERSHOP_WORKING_HOURS}"
+    )
+ABOUT = get_about_text()  # обратная совместимость
 
 WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",

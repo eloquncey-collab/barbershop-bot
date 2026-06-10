@@ -101,7 +101,7 @@ async def main():
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent):
-        logger.error(f"Global error: {event.exception}", exc_info=event.exception)
+        logger.error("Global error handler caught exception", exc_info=True)
         try:
             if event.update.message:
                 await event.update.message.answer("Произошла ошибка. Попробуйте позже.")

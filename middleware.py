@@ -1,5 +1,6 @@
 import logging
 import time
+import asyncio
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -10,10 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitMiddleware(BaseMiddleware):
+    """Таск 19: Hybrid rate limiter — in-memory с быстрым доступом, 
+    при перезапуске запись сбрасываются (OK для барбершопа)"""
     def __init__(self, max_requests: int = 20, window: int = 60):
         self.max_requests = max_requests
         self.window = window
         self.user_requests: dict[int, list[float]] = {}
+        self._lock = asyncio.Lock()
         super().__init__()
 
     async def __call__(self, handler, event, data):
@@ -21,27 +25,30 @@ class RateLimitMiddleware(BaseMiddleware):
         if user_id is None:
             return await handler(event, data)
 
-        # BUG-RLC FIX: Skip rate limiting for administrators
+        # Skip rate limiting for administrators
         if user_id in config.ADMIN_IDS:
             return await handler(event, data)
 
         now = time.time()
-        if user_id not in self.user_requests:
-            self.user_requests[user_id] = []
+        async with self._lock:
+            if user_id not in self.user_requests:
+                self.user_requests[user_id] = []
 
-        # BUG-009 FIX: Filter requests using proper time comparison
-        self.user_requests[user_id] = [
-            t for t in self.user_requests[user_id] if (now - t) < self.window
-        ]
+            # Filter expired entries
+            self.user_requests[user_id] = [
+                t for t in self.user_requests[user_id] if (now - t) < self.window
+            ]
 
-        if len(self.user_requests[user_id]) >= self.max_requests:
-            if isinstance(event, Message):
-                await event.answer("Слишком много запросов. Подождите немного.")
-            elif isinstance(event, CallbackQuery):
-                await event.answer("Слишком много запросов. Подождите.", show_alert=True)
-            return
+            if len(self.user_requests[user_id]) >= self.max_requests:
+                logger.warning(f"Rate limit hit for user {user_id}: {len(self.user_requests[user_id])} requests in {self.window}s")
+                if isinstance(event, Message):
+                    await event.answer("Слишком много запросов. Подождите немного.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("Слишком много запросов. Подождите.", show_alert=True)
+                return
 
-        self.user_requests[user_id].append(now)
+            self.user_requests[user_id].append(now)
+
         return await handler(event, data)
 
 
@@ -53,4 +60,3 @@ class AdminCheckMiddleware(BaseMiddleware):
         else:
             data["is_admin"] = False
         return await handler(event, data)
-

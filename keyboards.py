@@ -30,13 +30,12 @@ def masters_kb() -> InlineKeyboardMarkup:
         for j in range(i, min(i + 2, len(master_list))):
             name = master_list[j]
             info = MASTERS[name]
-            # FIX: Safe parsing of experience years - handle cases without spaces
             exp = info.get("experience", "")
             years = exp.split()[0] if exp and " " in exp else exp[:4] if exp else ""
-            if len(name.encode("utf-8")) > 30:
-                row.append(InlineKeyboardButton(text=f"{name[:10]}... • {years} л.", callback_data=f"master:{j}"))
-            else:
-                row.append(InlineKeyboardButton(text=f"{name} • {years} л.", callback_data=f"master:{name}"))
+            # Task 5: всегда имя в callback_data (не индекс) — индекс ломался при изменении списка мастеров
+            # Для отображения текст кнопки обрезаем длинные имена (max 40 байт UTF-8 = ~20 кириллицей)
+            display_name = name if len(name.encode("utf-8")) <= 40 else name.encode("utf-8")[:18].decode("utf-8", errors="ignore") + "…"
+            row.append(InlineKeyboardButton(text=f"{display_name} • {years} л.", callback_data=f"master:{name}"))
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

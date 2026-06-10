@@ -889,6 +889,19 @@ async def cb_admin_complete_booking(callback: CallbackQuery, bot: Bot):
                 except Exception as e:
                     logger.error(f"Failed to send loyalty reward to user {telegram_id}: {e}")
             
+            # Task 18: Уведомить мастера о завершении визита
+            master_name = booking["master"]
+            if master_name in config.MASTER_IDS:
+                try:
+                    master_done_text = (
+                        f"{E.CHECK} <b>Завершён визит</b>\n\n"
+                        f"{E.USER} Клиент: {html.escape(name)}\n"
+                        f"{E.CALENDAR} {keyboards._format_date(booking['date'])} в {booking['time']}\n"
+                        f"{E.MONEY} Оплачено: " + "{:,}".format(booking["price"]).replace(","," ") + " ₸"
+                    )
+                    await bot.send_message(config.MASTER_IDS[master_name], master_done_text, parse_mode="HTML")
+                except Exception as _me:
+                    logger.error(f"Failed to notify master on completion: {_me}")
             await edit_with_retry(callback.message, f"✅ Запись {booking_id} завершена.\n\n👤 {html.escape(name)} получил +1 визит (всего: {visits})", reply_markup=keyboards.admin_kb(), parse_mode="HTML")
         else:
             await callback.answer("Запись не найдена или уже не активна", show_alert=True)

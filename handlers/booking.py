@@ -29,7 +29,6 @@ class BookingStates(StatesGroup):
     choose_date = State()
     choose_time = State()
     enter_name = State()
-    confirm = State()
     enter_review_comment = State()
 
 
@@ -402,6 +401,8 @@ async def cb_choose_time(callback: CallbackQuery, state: FSMContext):
     if time_str not in available_slots:
         await callback.answer(f"{P.CROSS} Неверное время", show_alert=True)
         return
+    # Task 6: Блокируем слот на 5 мин — другие пользователи увидят его как занятый
+    await storage.create_slot_lock(date_str, time_str, master)
     await state.update_data(time=time_str)
     await state.set_state(BookingStates.enter_name)
     
@@ -545,6 +546,11 @@ async def cb_waitlist(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
+    # Task 15: Лимит 5 записей в листе ожидания
+    _wl_count = await storage.get_user_waitlist_count(telegram_id)
+    if _wl_count >= 5:
+        await callback.answer("Максимум 5 записей в листе ожидания.", show_alert=True)
+        return
     await storage.add_to_waitlist(
         telegram_id=telegram_id,
         name=callback.from_user.first_name or "",
@@ -610,91 +616,31 @@ async def handle_enter_name(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=keyboards.confirm_kb(), parse_mode="HTML")
 
 
-@router.callback_query(F.data == "confirm", BookingStates.confirm)
-async def cb_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    telegram_id = callback.from_user.id
-
-    booking = {
-        "date": data["date"],
-        "time": data["time"],
-        "name": data["name"],
-        "telegram_id": telegram_id,
-        "username": callback.from_user.username or "",
-        "master": data["master"],
-        "service": data["service"],
-        "price": data["price"],
-    }
-
+@router.callback_query(F.data == "confirm")
+async def cb_confirm_deprecated(callback: CallbackQuery, state: FSMContext):
+    """Task 1: Устаревший хендлер — запись создаётся в handle_enter_name.
+    При нажатии старой кнопки — очищаем состояние и показываем сообщение."""
+    await state.clear()
     try:
-        booking_id = await storage.save_booking(booking)
-    except Exception as e:
-        logger.error(f"Failed to save booking: {e}")
-        await callback.message.edit_text(messages.ERROR, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
-        await callback.answer()
-        return
-
-    if not booking_id:
         await callback.message.edit_text(
-            messages.SLOT_BUSY,
+            f"{E.INFO} Сессия устарела. Начните запись заново.",
             reply_markup=keyboards.back_to_main_kb(),
-            parse_mode="HTML",
-        )
-        await state.set_state(BookingStates.choose_time)
-        await callback.answer()
-        return
-    
-    # TASK-03: Loyalty update removed from here - moved to admin_complete_booking (only real visit = bonus)
-    
-    date_str = keyboards._format_date(booking["date"])
-    text = f"{E.CHECK} Запись подтверждена!\n\n"
-    text += f"{E.CALENDAR} {date_str} в {booking['time']}\n"
-    text += f"{E.SCISSORS} {html.escape(booking['master'])}\n"
-    text += f"{E.LIST} {html.escape(booking['service'])} — {booking['price']:,} ₸\n\n".replace(",", " ")
-    text += f"{E.LOCATION} {html.escape(config.BARBERSHOP_ADDRESS)}\n\n"
-    text += "Напоминания:\n"
-    text += "• За 24 часа до визита\n"
-    text += "• За 2 часа до визита\n\n"
-    text += f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
-    
-    await callback.message.edit_text(text, reply_markup=keyboards.booking_success_kb(),
             parse_mode="HTML"
         )
-
-    admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
-        name=html.escape(booking["name"]),
-        master=html.escape(booking["master"]),
-        service=html.escape(booking["service"]),
-        date=keyboards._format_date(booking["date"]),
-        time=booking["time"],
-        price=booking["price"],
-    )
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    master_name = booking["master"]
-    if master_name in config.MASTER_IDS:
-        try:
-            await bot.send_message(config.MASTER_IDS[master_name], admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify master {master_name}: {e}")
-
-
-
-    # Schedule reminders with booking_id directly
-    booking_with_id = booking.copy()
-    booking_with_id["id"] = booking_id
-    await scheduler.schedule_reminders(bot, booking_with_id)
-
-    await state.clear()
+    except Exception:
+        await callback.message.answer(
+            f"{E.INFO} Сессия устарела. Начните запись заново.",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
     await callback.answer()
-
 
 @router.callback_query(F.data == "cancel_booking")
 async def cb_cancel_booking(callback: CallbackQuery, state: FSMContext):
+    # Task 6: Снять блокировку слота если пользователь вышел из потока записи
+    data = await state.get_data()
+    if data.get("date") and data.get("time") and data.get("master"):
+        await storage.release_slot_lock(data["date"], data["time"], data["master"])
     await state.clear()
     # UX-005 FIX: Book again button after cancellation from FSM flow
     book_again_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -886,6 +832,15 @@ async def cb_remind_confirm(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_text(f"{E.CHECK} <b>Визит подтверждён. Ждём вас!</b>", parse_mode="HTML")
     except Exception:
         await callback.message.answer(f"{E.CHECK} <b>Визит подтверждён. Ждём вас!</b>", parse_mode="HTML")
+    # Task 13: Обратная связь пользователю после подтверждения
+    try:
+        await callback.message.edit_text(
+            f"✅ <b>Отлично!</b> Ждём вас в указанное время.",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
     await callback.answer()
 
 
