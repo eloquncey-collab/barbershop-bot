@@ -1,8 +1,4 @@
-"""
-Шаблон конфигурации для барбершопа
-Скопируйте этот файл как config.py и заполните реальными данными
-"""
-import os
+﻿import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,9 +15,6 @@ if raw_master_ids:
             name, tid = pair.split("=", 1)
             try:
                 telegram_id = int(tid.strip())
-                if telegram_id < 1000:
-                    print(f"⚠️  WARNING: MASTER_IDS contains suspicious ID for {name.strip()}: {telegram_id}")
-                    print(f"    Real Telegram IDs are typically 9-10 digits. Update .env with valid IDs.")
                 MASTER_IDS[name.strip()] = telegram_id
             except ValueError:
                 pass
@@ -29,48 +22,45 @@ if raw_master_ids:
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
 
 # База данных
-DB_PATH = os.getenv("DB_PATH","/app/data/barbershop.db")
+DB_PATH = os.getenv("DB_PATH", "/app/data/barbershop.db")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Almaty")
 
-# ============================================================================
-# НАСТРОЙКИ БАРБЕРШОПА - ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ДАННЫЕ
-# ============================================================================
+# ========================================
+# НАСТРОИКИ БАРБЕРШОПА
+# ========================================
 
-BARBERSHOP_NAME = "ВАШ_БАРБЕРШОП"  # Замените на название вашего барбершопа
-BARBERSHOP_ADDRESS = "г. [Город], ул. [Улица], [Дом]"  # Замените на реальный адрес
-BARBERSHOP_PHONE = "+7 (XXX) XXX-XX-XX"  # Замените на реальный телефон
-BARBERSHOP_WORKING_HOURS = "Пн-Сб: 10:00-21:00, Вс: 11:00-19:00"  # Настройте часы работы
+BARBERSHOP_NAME = "Barbershop «Острый»"
+BARBERSHOP_ADDRESS = "г. Алматы, ул. Абая 45, 2 этаж"
+BARBERSHOP_PHONE = "+7 (771) 234-56-78"
+BARBERSHOP_WORKING_HOURS = "Пн-Сб: 10:00-21:00, Вс: 11:00-19:00"
 
-# ============================================================================
-# МАСТЕРА - ДОБАВЬТЕ РЕАЛЬНЫХ МАСТЕРОВ
-# ============================================================================
-# Формат: "Имя": {"experience": "X лет", "specialization": "описание"}
+# ========================================
+# МАСТЕРА
+# ========================================
 
 MASTERS = {
-    "Имя Мастера 1": {"experience": "5 лет", "specialization": "мужские стрижки, бритьё"},
-    "Имя Мастера 2": {"experience": "3 года", "specialization": "стрижки, моделирование бороды"},
-    # Добавьте своих мастеров здесь
+    "Алибек": {"experience": "5 лет",  "specialization": "классика, фейды, бритьё"},
+    "Дамир":  {"experience": "3 года", "specialization": "мужские стрижки, моделирование бороды"},
+    "Максат": {"experience": "2 года", "specialization": "детские стрижки, творческие стрижки, фейды"},
 }
 
-# ============================================================================
-# УСЛУГИ - НАСТРОЙТЕ ПРАЙС-ЛИСТ
-# ============================================================================
-# Формат: "Название услуги": цена_в_тенге
+# ========================================
+# УСЛУГИ
+# ========================================
 
 SERVICES = {
-    "Мужская стрижка": 3000,
-    "Стрижка бороды": 1500,
+    "Мужская стрижка":   3000,
+    "Стрижка бороды":   1500,
     "Стрижка + борода": 4000,
-    "Камуфляж седины": 5000,
-    "Окрашивание": 6000,
-    "Детская стрижка": 2500,
+    "Камуфляж седины":  5000,
+    "Окрашивание":      6000,
+    "Детская стрижка":  2500,
 }
 
-# ============================================================================
-# РАСПИСАНИЕ И СЛОТЫ ВРЕМЕНИ
-# ============================================================================
+# ========================================
+# РАСПИСАНИЕ
+# ========================================
 
-# Рабочие часы по дням недели (час начала, час окончания)
 WORKING_HOURS = {
     "monday":    (10, 21),
     "tuesday":   (10, 21),
@@ -81,7 +71,6 @@ WORKING_HOURS = {
     "sunday":    (11, 19),
 }
 
-# Временные слоты (автоматически генерируются из WORKING_HOURS)
 TIME_SLOTS = [
     "10:00", "10:30", "11:00", "11:30",
     "12:00", "12:30", "13:00", "13:30",
@@ -91,21 +80,21 @@ TIME_SLOTS = [
     "20:00", "20:30",
 ]
 
-# ============================================================================
-# НАСТРОЙКИ ЛИМИТОВ И БОНУСОВ
-# ============================================================================
+# ========================================
+# ЛИМИТЫ И БОНУСЫ
+# ========================================
 
 MAX_BOOKING_ATTEMPTS = 10
-MIN_BOOKING_ADVANCE_MINUTES = int(os.getenv("MIN_BOOKING_ADVANCE_MINUTES", "60"))  # минимальный буфер до записи (минут)  # Максимум попыток записи
-RATE_LIMIT_WINDOW = 1800  # Окно лимита в секундах (1 час)
+MIN_BOOKING_ADVANCE_MINUTES = int(os.getenv("MIN_BOOKING_ADVANCE_MINUTES", "60"))
+RATE_LIMIT_WINDOW = 1800
 
-LOYALTY_VISIT_INTERVAL = 5  # Каждый N-й визит дает бонус
-LOYALTY_DISCOUNT_PERCENT = 10  # Процент скидки по программе лояльности
-REFERRAL_BONUS = 100  # Бонус за приглашение друга
+LOYALTY_VISIT_INTERVAL = 5
+LOYALTY_DISCOUNT_PERCENT = 10
+REFERRAL_BONUS = 100
 
 
 async def load_config_from_db():
-    """Загрузка настроек из базы данных"""
+    """\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u0438\u0437 \u0431\u0430\u0437\u044b \u0434\u0430\u043d\u043d\u044b\u0445"""
     global BARBERSHOP_ADDRESS, BARBERSHOP_PHONE, BARBERSHOP_WORKING_HOURS, TIME_SLOTS, MASTERS, SERVICES, WORKING_HOURS
     try:
         from storage import get_all_settings, get_all_masters, get_all_services
@@ -118,14 +107,12 @@ async def load_config_from_db():
             BARBERSHOP_WORKING_HOURS = settings["hours"]
         if "slots" in settings:
             TIME_SLOTS = [s.strip() for s in settings["slots"].split(",")]
-        
         if "working_hours_json" in settings:
             import json
             try:
                 WORKING_HOURS = json.loads(settings["working_hours_json"])
             except Exception:
                 pass
-        
         masters = await get_all_masters()
         if masters:
             MASTERS.clear()
@@ -134,7 +121,6 @@ async def load_config_from_db():
         if services:
             SERVICES.clear()
             SERVICES.update(services)
-        
         from storage import get_all_master_telegram_ids
         db_master_ids = await get_all_master_telegram_ids()
         if db_master_ids:
@@ -144,7 +130,7 @@ async def load_config_from_db():
 
 
 async def save_config_to_db():
-    """Сохранение настроек в базу данных"""
+    """\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u0432 \u0431\u0430\u0437\u0443 \u0434\u0430\u043d\u043d\u044b\u0445"""
     try:
         from storage import save_settings, save_master, save_service
         import json
