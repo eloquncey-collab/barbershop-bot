@@ -108,8 +108,18 @@ async def _get_available_slots(date_str: str, master: str) -> dict[str, str]:
     for t in time_slots:
         if t in booked:
             slots[t] = "busy"
-        elif date_str == today_str and t <= current_time:
-            pass
+        elif date_str == today_str:
+            # Фильтруем слоты ближе чем MIN_BOOKING_ADVANCE_MINUTES часов от текущего времени
+            try:
+                h, m = int(t[:2]), int(t[3:])
+                from datetime import timedelta
+                slot_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                cutoff = now + timedelta(minutes=config.MIN_BOOKING_ADVANCE_MINUTES)
+                if slot_dt > cutoff:
+                    slots[t] = "free"
+                # если slot_dt <= cutoff — слот слишком скоро, пропускаем
+            except Exception:
+                slots[t] = "free"
         else:
             slots[t] = "free"
     return slots

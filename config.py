@@ -95,7 +95,8 @@ TIME_SLOTS = [
 # НАСТРОЙКИ ЛИМИТОВ И БОНУСОВ
 # ============================================================================
 
-MAX_BOOKING_ATTEMPTS = 10  # Максимум попыток записи
+MAX_BOOKING_ATTEMPTS = 10
+MIN_BOOKING_ADVANCE_MINUTES = int(os.getenv("MIN_BOOKING_ADVANCE_MINUTES", "60"))  # минимальный буфер до записи (минут)  # Максимум попыток записи
 RATE_LIMIT_WINDOW = 1800  # Окно лимита в секундах (1 час)
 
 LOYALTY_VISIT_INTERVAL = 5  # Каждый N-й визит дает бонус
