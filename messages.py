@@ -136,7 +136,7 @@ REMINDER_24H = (
 )
 
 REMINDER_2H = (
-    f"{E.FIRE} <b>Скоро у вас запись!</b>\n\n"
+    f"{E.EXCLAMATION} <b>Скоро у вас запись!</b>\n\n"
     f"Осталось <b>2 часа</b> — {{time}}\n"
     f"{E.SCISSORS} <b>Мастер:</b> {{master}}\n\n"
     "Подтвердите присутствие — мы вас ждём!\n\n"
