@@ -529,9 +529,11 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
             logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     master_name = booking["master"]
-    if master_name in config.MASTER_IDS:
+    # FIX: не дублируем, если telegram_id мастера уже в ADMIN_IDS
+    _master_tg_id = config.MASTER_IDS.get(master_name)
+    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
         try:
-            await bot.send_message(config.MASTER_IDS[master_name], admin_text, parse_mode="HTML")
+            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Failed to notify master {master_name}: {e}")
 
@@ -681,9 +683,11 @@ async def handle_enter_name(message: Message, state: FSMContext):
             logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     master_name = booking["master"]
-    if master_name in config.MASTER_IDS:
+    # FIX: не дублируем, если telegram_id мастера уже в ADMIN_IDS
+    _master_tg_id = config.MASTER_IDS.get(master_name)
+    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
         try:
-            await bot.send_message(config.MASTER_IDS[master_name], admin_text, parse_mode="HTML")
+            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Failed to notify master {master_name}: {e}")
 
