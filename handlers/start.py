@@ -2,7 +2,7 @@ import re
 import html
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -116,10 +116,16 @@ async def handle_contact(message: Message, state: FSMContext):
         return
 
     await state.clear()
-    # BUG-003 FIX: Combined two messages into one coherent message
+    # BUG-PHONE FIX: сначала убираем ReplyKeyboard (кнопку шаринга номера), затем показываем inline-меню
     await send_with_retry(
         message.bot, message.chat.id,
-        f"{E.CHECK} <b>Спасибо! Номер сохранён.</b>\n\n" + messages.MAIN_MENU_TEXT,
+        f"{E.CHECK} <b>Номер сохранён!</b>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    await send_with_retry(
+        message.bot, message.chat.id,
+        messages.MAIN_MENU_TEXT,
         reply_markup=keyboards.main_menu_kb(),
         parse_mode="HTML"
     )

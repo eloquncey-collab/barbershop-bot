@@ -296,6 +296,22 @@ async def cb_choose_service(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("date:"))
+async def cb_choose_date_stale(callback: CallbackQuery, state: FSMContext):
+    """Fallback: date: нажата вне состояния choose_date — сессия устарела."""
+    current_state = await state.get_state()
+    if current_state == BookingStates.choose_date.state:
+        return  # передаём основному обработчику
+    await callback.answer(
+        "Сессия записи устарела. Нажмите «Записать» снова.",
+        show_alert=True
+    )
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+
 @router.callback_query(F.data.startswith("date:"), BookingStates.choose_date)
 async def cb_choose_date(callback: CallbackQuery, state: FSMContext):
     date_str = callback.data.split(":", 1)[1]
