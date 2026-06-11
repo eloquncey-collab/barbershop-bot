@@ -218,7 +218,7 @@ async def save_booking(booking: dict) -> str | None:
             lock_expires = (get_now(config.TIMEZONE) + timedelta(minutes=5)).isoformat()
             try:
                 await db.execute(
-                    "INSERT INTO slot_locks (date, time, master, locked_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO slot_locks (date, time, master, locked_at, expires_at) VALUES (?, ?, ?, ?, ?)",
                     (booking["date"], booking["time"], booking["master"], now, lock_expires)
                 )
             except Exception as e:
