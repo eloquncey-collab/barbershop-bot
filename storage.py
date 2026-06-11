@@ -985,6 +985,17 @@ async def release_slot_lock(date: str, time: str, master: str):
         logger.warning(f"Failed to release slot_lock {date}/{time}/{master}: {e}")
 
 
+async def cleanup_slot_locks_on_startup():
+    """Удаляем все slot_locks при старте — прерванные сессии оставляют зависшие блокировки."""
+    try:
+        async with aiosqlite.connect(config.DB_PATH) as db:
+            await db.execute("DELETE FROM slot_locks")
+            await db.commit()
+            logger.info("slot_locks cleared on startup")
+    except Exception as e:
+        logger.warning(f"Failed to cleanup slot_locks: {e}")
+
+
 async def get_user_waitlist_count(telegram_id: int) -> int:
     """Task 15: Проверяет количество активных записей в листе ожидания"""
     async with aiosqlite.connect(config.DB_PATH) as db:

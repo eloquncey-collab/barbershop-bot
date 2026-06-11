@@ -112,6 +112,9 @@ async def main():
 
     await init_db()
     logger.info("Database initialized")
+    # FIX: чистим stale slot_locks от прерванных сессий
+    from storage import cleanup_slot_locks_on_startup
+    await cleanup_slot_locks_on_startup()
 
     await load_config_from_db()
     logger.info("Config loaded from DB")

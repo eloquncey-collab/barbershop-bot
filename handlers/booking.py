@@ -65,10 +65,10 @@ def _generate_time_slots(date_str: str) -> list[str]:
     hours = config.WORKING_HOURS.get(day_name, (10, 21))
     start_h, end_h = hours
     slots = []
-    for h in range(start_h, end_h + 1):
+    # FIX: range(start_h, end_h) — не включаем слот в время закрытия (10,21) → 10:00..20:30
+    for h in range(start_h, end_h):
         slots.append(f"{h:02d}:00")
-        if h < end_h:
-            slots.append(f"{h:02d}:30")
+        slots.append(f"{h:02d}:30")
     return slots
 
 
@@ -383,7 +383,13 @@ async def cb_choose_time(callback: CallbackQuery, state: FSMContext):
         available_slots = await _get_available_slots(date_str, master)
         slot_status = available_slots.get(time_str)
         
-        if slot_status != "free":
+        if slot_status is None:
+            # FIX: слот исчез из дикта — слишком мало времени до визита
+            await callback.answer(
+                f"Слот недоступен. Минимальное время до записи: {config.MIN_BOOKING_ADVANCE_MINUTES} мин.",
+                show_alert=True
+            )
+        elif slot_status != "free":
             await callback.answer(
                 f"{E.CROSS} Этот слот уже занят! Пожалуйста, выберите другое время.",
                 show_alert=True
@@ -770,7 +776,10 @@ async def cb_back_to_service(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_date")
 async def cb_back_to_date(callback: CallbackQuery, state: FSMContext):
-    # BUG-013: Clear FSM data when going back
+    # FIX: освобождаем slot_lock при прыжке назад к дате
+    _back_data = await state.get_data()
+    if _back_data.get("date") and _back_data.get("time") and _back_data.get("master"):
+        await storage.release_slot_lock(_back_data["date"], _back_data["time"], _back_data["master"])
     await state.update_data(time=None, name=None)
     await state.set_state(BookingStates.choose_date)
     data = await state.get_data()
@@ -799,6 +808,10 @@ async def cb_back_to_date(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "back_to_time")
 async def cb_back_to_time(callback: CallbackQuery, state: FSMContext):
     # BUG-013: Clear FSM data when going back AND refresh slots
+    data = await state.get_data()
+    # FIX: освобождаем slot_lock при возврате назад
+    if data.get("date") and data.get("time") and data.get("master"):
+        await storage.release_slot_lock(data["date"], data["time"], data["master"])
     await state.update_data(name=None)
     await state.set_state(BookingStates.choose_time)
     data = await state.get_data()
