@@ -459,22 +459,23 @@ async def cb_choose_time(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "use_tg_name", BookingStates.enter_name)
 async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
-    """Use Telegram first_name as booking name"""
+    """Use Telegram first_name as booking name — FIX: callback, not message"""
     data = await state.get_data()
     name = data.get("tg_name_suggestion", "")
     if not name:
         await callback.answer(f"{P.CROSS} Имя не найдено, введите вручную", show_alert=True)
         return
+
+    telegram_id = callback.from_user.id
     await state.update_data(name=name)
     data = await state.get_data()
-    telegram_id = message.from_user.id
 
     booking = {
         "date": data["date"],
         "time": data["time"],
         "name": name,
         "telegram_id": telegram_id,
-        "username": message.from_user.username or "",
+        "username": callback.from_user.username or "",
         "master": data["master"],
         "service": data["service"],
         "price": data["price"],
@@ -484,17 +485,19 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
         booking_id = await storage.save_booking(booking)
     except Exception as e:
         logger.error(f"Failed to save booking: {e}")
-        await message.answer(messages.ERROR, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
+        await callback.message.answer(messages.ERROR, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
         await state.clear()
+        await callback.answer()
         return
 
     if not booking_id:
-        await message.answer(messages.SLOT_BUSY, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
+        await callback.message.answer(messages.SLOT_BUSY, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
         await state.set_state(BookingStates.choose_time)
+        await callback.answer()
         return
 
     date_str = keyboards._format_date(booking["date"])
-    text = f"{E.CHECK} Запись подтверждена!\n\n"
+    text = f"{E.CHECK} <b>Запись подтверждена!</b>\n\n"
     text += f"{E.CALENDAR} {date_str} в {booking['time']}\n"
     text += f"{E.SCISSORS} {html.escape(booking['master'])}\n"
     svc = html.escape(booking['service'])
@@ -506,7 +509,7 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
     text += "• За 2 часа до визита\n\n"
     text += f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
 
-    await message.answer(text, reply_markup=keyboards.booking_success_kb(), parse_mode="HTML")
+    await callback.message.answer(text, reply_markup=keyboards.booking_success_kb(), parse_mode="HTML")
 
     admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
         name=html.escape(booking["name"]),
@@ -516,7 +519,7 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
         time=booking["time"],
         price=booking["price"],
     )
-    bot = message.bot
+    bot = callback.bot
     for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(admin_id, admin_text, parse_mode="HTML")
@@ -535,6 +538,7 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
     await scheduler.schedule_reminders(bot, booking_with_id)
 
     await state.clear()
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("waitlist:"), BookingStates.choose_time)
 async def cb_waitlist(callback: CallbackQuery, state: FSMContext):
@@ -616,20 +620,76 @@ async def handle_enter_name(message: Message, state: FSMContext):
         return
     
     await state.update_data(name=name)
-    await state.set_state(BookingStates.confirm)
     data = await state.get_data()
-    
-    # BUG-019 FIX: Add booking summary for better UX
-    date_str = keyboards._format_date(data["date"])
-    text = f"{E.LIST} <b>Подтверждение записи</b>\n\n"
-    text += f"<b>Ваш выбор:</b>\n"
-    text += f"{E.USER} <b>Имя:</b> {html.escape(name)}\n"
-    text += f"{E.SCISSORS} <b>Мастер:</b> {html.escape(data['master'])}\n"
-    text += f"{E.BARBER} <b>Услуга:</b> {html.escape(data['service'])} — {data['price']:,} ₸\n".replace(",", " ")
-    text += f"{E.CALENDAR} <b>Дата:</b> {date_str} в {data['time']}\n\n"
-    text += "Всё верно?"
-    
-    await message.answer(text, reply_markup=keyboards.confirm_kb(), parse_mode="HTML")
+    telegram_id = message.from_user.id
+
+    # Task 1 FIX: создаём бронь сразу, без confirm-экрана (BookingStates.confirm не существует)
+    booking = {
+        "date": data["date"],
+        "time": data["time"],
+        "name": name,
+        "telegram_id": telegram_id,
+        "username": message.from_user.username or "",
+        "master": data["master"],
+        "service": data["service"],
+        "price": data["price"],
+    }
+
+    try:
+        booking_id = await storage.save_booking(booking)
+    except Exception as e:
+        logger.error(f"Failed to save booking: {e}")
+        await message.answer(messages.ERROR, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
+        await state.clear()
+        return
+
+    if not booking_id:
+        await message.answer(messages.SLOT_BUSY, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
+        await state.set_state(BookingStates.choose_time)
+        return
+
+    date_str = keyboards._format_date(booking["date"])
+    text = f"{E.CHECK} <b>Запись подтверждена!</b>\n\n"
+    text += f"{E.CALENDAR} {date_str} в {booking['time']}\n"
+    text += f"{E.SCISSORS} {html.escape(booking['master'])}\n"
+    svc = html.escape(booking['service'])
+    price_fmt = "{:,}".format(booking["price"]).replace(",", " ")
+    text += f"{E.LIST} {svc} — {price_fmt} ₸\n\n"
+    text += f"{E.LOCATION} {html.escape(config.BARBERSHOP_ADDRESS)}\n\n"
+    text += "Напоминания:\n"
+    text += "• За 24 часа до визита\n"
+    text += "• За 2 часа до визита\n\n"
+    text += f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
+
+    await message.answer(text, reply_markup=keyboards.booking_success_kb(), parse_mode="HTML")
+
+    admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
+        name=html.escape(booking["name"]),
+        master=html.escape(booking["master"]),
+        service=html.escape(booking["service"]),
+        date=keyboards._format_date(booking["date"]),
+        time=booking["time"],
+        price=booking["price"],
+    )
+    bot = message.bot
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to notify admin {admin_id}: {e}")
+
+    master_name = booking["master"]
+    if master_name in config.MASTER_IDS:
+        try:
+            await bot.send_message(config.MASTER_IDS[master_name], admin_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to notify master {master_name}: {e}")
+
+    booking_with_id = booking.copy()
+    booking_with_id["id"] = booking_id
+    await scheduler.schedule_reminders(bot, booking_with_id)
+
+    await state.clear()
 
 
 @router.callback_query(F.data == "confirm")
