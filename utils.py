@@ -53,3 +53,26 @@ async def edit_with_retry(
                 await asyncio.sleep(retry_delay * (2 ** attempt))  # exponential backoff
     logger.error(f"Failed to edit message after {max_retries} attempts")
     return False
+
+
+async def notify_admins(bot, text: str, parse_mode: str = "HTML") -> None:
+    """REFACTOR: Centralised admin notification helper.
+    Replaces scattered for admin_id in config.ADMIN_IDS loops.
+    """
+    import config
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text, parse_mode=parse_mode)
+        except Exception as _e:
+            logger.error(f"Failed to notify admin {admin_id}: {_e}")
+
+
+async def notify_master(bot, master_name: str, text: str, parse_mode: str = "HTML") -> None:
+    """REFACTOR: Notify master Telegram if configured and not already in ADMIN_IDS."""
+    import config
+    master_tg_id = config.MASTER_IDS.get(master_name)
+    if master_tg_id and master_tg_id not in config.ADMIN_IDS:
+        try:
+            await bot.send_message(master_tg_id, text, parse_mode=parse_mode)
+        except Exception as _e:
+            logger.error(f"Failed to notify master {master_name} (id={master_tg_id}): {_e}")

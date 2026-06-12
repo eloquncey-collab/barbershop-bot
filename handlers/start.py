@@ -12,7 +12,7 @@ import keyboards
 import config
 import storage
 import scheduler
-from utils import send_with_retry, edit_with_retry
+from utils import send_with_retry, edit_with_retry, notify_admins
 from emoji_config import E
 
 logger = logging.getLogger(__name__)
@@ -291,11 +291,7 @@ async def cb_confirm_cancel(callback: CallbackQuery):
         cancel_text += f"{E.MASTER} Мастер: {html.escape(booking['master'])}\n"
         cancel_text += f"{E.BARBER} Услуга: {html.escape(booking['service'])}"
         
-        for admin_id in config.ADMIN_IDS:
-            try:
-                await bot.send_message(admin_id, cancel_text, parse_mode="HTML")
-            except Exception as e:
-                logger.error(f"Failed to notify admin {admin_id}: {e}")
+        await notify_admins(bot, cancel_text)
         
         # Проверяем лист ожидания
         waitlist = await storage.get_waitlist_for_slot(booking["date"], booking["time"], booking["master"])
@@ -476,29 +472,33 @@ async def cmd_cancel_universal(message: Message, state: FSMContext):
 
     parts = message.text.split()
     if len(parts) > 1:
-        # Direct cancel by ID
+        # UX-FIX: /cancel BOOKING_ID now shows confirmation instead of instant delete
         booking_id = parts[1].strip()
-        booking = await storage.cancel_booking(booking_id, telegram_id=message.from_user.id)
-        if booking:
-            await scheduler.cancel_reminders(booking_id)
-            date_str = keyboards._format_date(booking['date'])
-            await send_with_retry(
-                message.bot, message.chat.id,
-                f"{E.CHECK} <b>Запись отменена!</b>\n\n"
-                f"{E.CALENDAR} {date_str} в {booking['time']}\n"
-                f"{E.MASTER} {html.escape(booking['master'])}\n"
-                f"{E.BARBER} {html.escape(booking['service'])}\n\n"
-                f"{E.IDEA} Вы можете записаться снова в любое время!",
-                reply_markup=keyboards.back_to_main_kb(),
-                parse_mode="HTML"
-            )
-        else:
+        bookings = await storage.get_user_bookings(message.from_user.id)
+        booking = next((b for b in bookings if b['id'] == booking_id), None)
+        if not booking:
             await send_with_retry(
                 message.bot, message.chat.id,
                 f"{E.CROSS} <b>Запись не найдена</b>\n\nВозможно, она уже отменена.",
                 reply_markup=keyboards.back_to_main_kb(),
                 parse_mode="HTML"
             )
+            return
+        date_str = keyboards._format_date(booking['date'])
+        confirm_text = (
+            f"{E.WARNING} <b>Подтвердите отмену</b>\n\n"
+            f"{E.CALENDAR} <b>Дата:</b> {date_str}\n"
+            f"{E.CLOCK} <b>Время:</b> {booking['time']}\n"
+            f"{E.MASTER} <b>Мастер:</b> {html.escape(booking['master'])}\n"
+            f"{E.BARBER} <b>Услуга:</b> {html.escape(booking['service'])}\n\n"
+            f"{E.IDEA} <b>Это действие нельзя отменить!</b>"
+        )
+        await send_with_retry(
+            message.bot, message.chat.id,
+            confirm_text,
+            reply_markup=keyboards.confirm_cancel_kb(booking_id),
+            parse_mode="HTML"
+        )
         return
 
     # No ID given — show list with one-tap cancel buttons

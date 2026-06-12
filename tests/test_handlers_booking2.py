@@ -168,20 +168,37 @@ class TestCbGoToWaitlist:
 
 
 class TestCmdCancel:
+    """REFACTOR: cmd_cancel removed from booking.py (dead code).
+    Functionality now lives in cmd_cancel_universal (start.py).
+    These tests verify the same scenarios via the canonical handler.
+    """
     async def test_cancels_fsm(self, db):
-        from handlers.booking import cmd_cancel
+        """When user is in FSM state, /cancel clears state and releases slot_lock."""
+        from handlers.start import cmd_cancel_universal
+        from unittest.mock import AsyncMock, patch
         msg = make_message(text="/cancel")
-        fsm = make_fsm(data={"date": "2026-12-07", "time": "10:00", "master": "Alibek"})
-        with patch("handlers.booking.storage.release_slot_lock", new=AsyncMock()):
-            await cmd_cancel(msg, fsm)
-        msg.answer.assert_called()
+        # Give message a proper bot
+        msg.bot = AsyncMock()
+        msg.chat.id = msg.from_user.id
+        fsm = make_fsm(state="BookingStates:enter_name",
+                       data={"date": "2026-12-07", "time": "10:00", "master": "Alibek"})
+        with patch("handlers.start.storage.release_slot_lock", new=AsyncMock()) as mock_release, \
+             patch("handlers.start.send_with_retry", new=AsyncMock()) as mock_send:
+            await cmd_cancel_universal(msg, fsm)
+        mock_release.assert_called_once_with("2026-12-07", "10:00", "Alibek")
+        mock_send.assert_called()
 
     async def test_cancel_without_slot_lock(self, db):
-        from handlers.booking import cmd_cancel
+        """When user is in FSM state without slot data, /cancel still clears state."""
+        from handlers.start import cmd_cancel_universal
+        from unittest.mock import AsyncMock, patch
         msg = make_message(text="/cancel")
-        fsm = make_fsm(data={})
-        await cmd_cancel(msg, fsm)
-        msg.answer.assert_called()
+        msg.bot = AsyncMock()
+        msg.chat.id = msg.from_user.id
+        fsm = make_fsm(state="BookingStates:choose_master", data={})
+        with patch("handlers.start.send_with_retry", new=AsyncMock()) as mock_send:
+            await cmd_cancel_universal(msg, fsm)
+        mock_send.assert_called()
 
 
 class TestCbUseTgName:

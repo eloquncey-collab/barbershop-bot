@@ -16,7 +16,7 @@ import scheduler
 from tz_utils import get_now, get_today, is_past
 from emoji_config import E, P
 from handlers.start import ContactStates
-from utils import edit_with_retry
+from utils import edit_with_retry, notify_admins, notify_master
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +50,8 @@ async def _finalize_booking(booking: dict, booking_id: str, send_fn, bot) -> Non
         time=booking["time"],
         price=booking["price"],
     )
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
-        except Exception as _e:
-            logger.error(f"Failed to notify admin {admin_id}: {_e}")
-
-    _master_tg_id = config.MASTER_IDS.get(booking["master"])
-    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
-        try:
-            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
-        except Exception as _e:
-            logger.error(f"Failed to notify master: {_e}")
+    await notify_admins(bot, admin_text)
+    await notify_master(bot, booking["master"], admin_text)
 
     bwi = booking.copy()
     bwi["id"] = booking_id
@@ -1009,39 +999,3 @@ async def cb_skip_comment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-
-
-
-@router.message(Command("cancel"))
-async def cmd_cancel(message, state):
-    # UX-3 FIX: /cancel command handler
-    from aiogram.types import Message
-    current_state = await state.get_state()
-    if current_state is not None:
-        data = await state.get_data()
-        if data.get("date") and data.get("time") and data.get("master"):
-            try:
-                await storage.release_slot_lock(data["date"], data["time"], data["master"])
-            except Exception:
-                pass
-        await state.clear()
-        await message.answer(
-            f"{E.INFO} Сессия записи отменена.\n\n"
-            "Для отмены активных записей используйте «Мои записи».",
-            reply_markup=keyboards.back_to_main_kb(),
-            parse_mode="HTML"
-        )
-        return
-    bookings = await storage.get_user_bookings(message.from_user.id)
-    if not bookings:
-        await message.answer(
-            messages.NO_ACTIVE_BOOKING,
-            reply_markup=keyboards.back_to_main_kb(),
-            parse_mode="HTML"
-        )
-        return
-    await message.answer(
-        f"{E.LIST} <b>Ваши активные записи:</b>\n\nВыберите запись для отмены:",
-        reply_markup=keyboards.bookings_list_kb(bookings),
-        parse_mode="HTML"
-    )

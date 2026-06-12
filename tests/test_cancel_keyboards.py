@@ -82,25 +82,31 @@ async def test_cancel_shows_buttons():
 
 @pytest.mark.asyncio
 async def test_cancel_with_id_success():
+    """UX-FIX: /cancel BOOKING_ID now shows confirmation screen first."""
     from handlers.start import cmd_cancel_universal
     msg = make_msg("/cancel abc123")
     state = AsyncMock()
     state.get_state = AsyncMock(return_value=None)
-    with (patch("storage.cancel_booking", new_callable=AsyncMock, return_value=MOCK_BOOKINGS[0]),
-         patch("scheduler.cancel_reminders", new_callable=AsyncMock),
+    with (patch("storage.get_user_bookings", new_callable=AsyncMock, return_value=MOCK_BOOKINGS),
          patch("handlers.start.send_with_retry", new_callable=AsyncMock) as m):
         await cmd_cancel_universal(msg, state)
+    kwargs = m.call_args[1]
+    # Must show confirmation screen (confirm_cancel_kb), NOT immediately cancel
+    from keyboards import confirm_cancel_kb
+    assert kwargs["reply_markup"] is not None
+    # Text should include warning / confirmation language
     text = m.call_args[0][2]
-    assert "Запись отменена" in text
-    assert "Алибек" in text
+    assert "Подтвердите" in text  # Подтвердите отмену
+    assert "Алибек" in text  # master name shown
 
 @pytest.mark.asyncio
 async def test_cancel_with_id_not_found():
+    """UX-FIX: /cancel BOOKING_ID with unknown ID shows not-found message."""
     from handlers.start import cmd_cancel_universal
     msg = make_msg("/cancel badid")
     state = AsyncMock()
     state.get_state = AsyncMock(return_value=None)
-    with (patch("storage.cancel_booking", new_callable=AsyncMock, return_value=None),
+    with (patch("storage.get_user_bookings", new_callable=AsyncMock, return_value=[]),
          patch("handlers.start.send_with_retry", new_callable=AsyncMock) as m):
         await cmd_cancel_universal(msg, state)
     assert "не найдена" in m.call_args[0][2]
