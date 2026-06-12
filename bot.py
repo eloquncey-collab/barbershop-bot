@@ -198,13 +198,28 @@ async def main():
     except Exception as e:
         logger.warning(f"delete_webhook failed (non-critical): {e}")
 
-    try:
-        logger.info("Starting polling...")
-        await dp.start_polling(bot, drop_pending_updates=True)
-    finally:
-        shutdown_scheduler()
-        await bot.session.close()
-        logger.info("Bot stopped")
+    # DEPLOY FIX: Railway zero-downtime starts new container before stopping old.
+    # Telegram allows only ONE getUpdates session -> TelegramConflictError.
+    # Retry up to 120s until the old container is stopped by Railway.
+    from aiogram.exceptions import TelegramConflictError
+    for _attempt in range(24):
+        try:
+            logger.info(f"Starting polling (attempt {_attempt + 1}/24)...")
+            await dp.start_polling(bot, drop_pending_updates=True)
+            break
+        except TelegramConflictError:
+            if _attempt < 23:
+                logger.warning(
+                    f"TelegramConflictError: another instance active. "
+                    f"Retry {_attempt + 1}/24 in 5s..."
+                )
+                await asyncio.sleep(5)
+            else:
+                logger.error("TelegramConflictError: max retries exceeded.")
+                raise
+    shutdown_scheduler()
+    await bot.session.close()
+    logger.info("Bot stopped")
 
 
 if __name__ == "__main__":

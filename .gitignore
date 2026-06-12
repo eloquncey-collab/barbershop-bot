@@ -29,3 +29,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
