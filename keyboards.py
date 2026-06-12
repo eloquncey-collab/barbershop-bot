@@ -272,8 +272,9 @@ def admin_settings_kb() -> InlineKeyboardMarkup:
 
 
 def admin_cancel_booking_kb(booking_id: str) -> InlineKeyboardMarkup:
+    # HIGH-7 FIX: кнопка "Отменить" теперь ведёт в диалог подтверждения
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Отменить запись", callback_data=f"admin_cancel_booking:{booking_id}")],
+        [InlineKeyboardButton(text="Отменить запись", callback_data=f"admin_pre_cancel:{booking_id}")],
         [InlineKeyboardButton(text="Завершить запись", callback_data=f"admin_complete_booking:{booking_id}")],
         [InlineKeyboardButton(text="Назад", callback_data="admin_bookings")],
     ])

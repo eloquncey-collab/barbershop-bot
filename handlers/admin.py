@@ -789,7 +789,7 @@ async def handle_change_hours(message: Message, state: FSMContext):
                 )
                 return
             new_time_slots = []
-            for h in range(start_h, end_h + 1):
+            for h in range(start_h, end_h):  # MED-1 FIX: не включать слот в час закрытия
                 new_time_slots.append(f"{h:02d}:00")
                 if h < end_h:
                     new_time_slots.append(f"{h:02d}:30")
@@ -833,6 +833,39 @@ async def handle_change_hours(message: Message, state: FSMContext):
     )
 
 
+@router.callback_query(F.data.startswith("admin_pre_cancel:"))
+async def cb_admin_pre_cancel(callback: CallbackQuery):
+    """HIGH-7 FIX: Confirm dialog before admin cancels booking."""
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(messages.ADMIN_ONLY, show_alert=True)
+        return
+    booking_id = callback.data.split(":", 1)[1]
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="✅ Да, отменить",
+                callback_data=f"admin_cancel_booking:{booking_id}"
+            ),
+            InlineKeyboardButton(
+                text="❌ Нет",
+                callback_data=f"admin_manage_booking:{booking_id}"
+            ),
+        ]
+    ])
+    confirm_text = (
+        "⚠️ <b>Отменить запись <code>"
+        + booking_id +
+        "</code>?</b>\n\nПользователь получит уведомление. Действие нельзя отменить."
+    )
+    await edit_with_retry(
+        callback.message,
+        confirm_text,
+        reply_markup=confirm_kb,
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("admin_cancel_booking:"))
 async def cb_admin_cancel_booking(callback: CallbackQuery, bot: Bot):
     if not _is_admin(callback.from_user.id):
@@ -844,15 +877,36 @@ async def cb_admin_cancel_booking(callback: CallbackQuery, bot: Bot):
         if booking:
             await scheduler.cancel_reminders(booking_id)
             # BUG-019: Add parse_mode to user notification
+            _ub_date = keyboards._format_date(booking["date"])
+            _ub_time = booking["time"]
+            _ub_master = html.escape(booking["master"])
+            _ub_name = html.escape(booking["name"])
             await send_with_retry(
-                bot, 
-                booking["telegram_id"], 
+                bot,
+                booking["telegram_id"],
                 f"{E.CROSS} <b>Ваша запись отменена администратором</b>\n\n"
                 f"{E.ID} ID: <code>{booking_id}</code>\n"
-                f"{E.CALENDAR} {keyboards._format_date(booking['date'])} в {booking['time']}\n"
-                f"{E.MASTER} Мастер: {html.escape(booking['master'])}",
+                f"{E.CALENDAR} {_ub_date} в {_ub_time}\n"
+                f"{E.SCISSORS} Мастер: {_ub_master}",
                 parse_mode="HTML"
             )
+            # HIGH-1 FIX: уведомить мастера об отмене записи
+            _master_tg = config.MASTER_IDS.get(booking["master"])
+            if _master_tg and _master_tg != booking["telegram_id"]:
+                try:
+                    _b_name = html.escape(booking["name"])
+                    _b_date = keyboards._format_date(booking["date"])
+                    _b_time = booking["time"]
+                    await send_with_retry(
+                        bot,
+                        _master_tg,
+                        f"{E.INFO} <b>Запись отменена админом</b>\n\n"
+                        f"{E.USER} {_b_name}\n"
+                        f"{E.CALENDAR} {_b_date} в {_b_time}",
+                        parse_mode="HTML"
+                    )
+                except Exception as _me:
+                    logger.error(f"Failed to notify master on admin cancel: {_me}")
             await edit_with_retry(callback.message, f"Запись {booking_id} отменена.", reply_markup=keyboards.admin_kb())
         else:
             await callback.answer("Запись не найдена или уже не активна", show_alert=True)

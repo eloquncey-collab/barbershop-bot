@@ -136,8 +136,8 @@ async def load_config_from_db():
         db_master_ids = await get_all_master_telegram_ids()
         if db_master_ids:
             MASTER_IDS.update(db_master_ids)
-    except Exception:
-        pass
+    except Exception as _e:
+        _cfg_logger.error(f"MED-2 FIX: Failed to load config from DB: {_e}", exc_info=True)
 
 
 async def save_config_to_db():
@@ -154,5 +154,5 @@ async def save_config_to_db():
             await save_master(name, info["experience"], info["specialization"])
         for name, price in SERVICES.items():
             await save_service(name, price)
-    except Exception:
-        pass
+    except Exception as _e:
+        _cfg_logger.error(f"MED-2 FIX: Failed to save config to DB: {_e}", exc_info=True)

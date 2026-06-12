@@ -515,6 +515,9 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
         return
 
     if not booking_id:
+        # HIGH-2 FIX: release slot_lock so slot is immediately freed for other users
+        _d2 = await state.get_data()
+        await storage.release_slot_lock(_d2.get("date", ""), _d2.get("time", ""), _d2.get("master", ""))
         await callback.message.answer(messages.SLOT_BUSY, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
         await state.set_state(BookingStates.choose_time)
         await callback.answer()
@@ -627,6 +630,9 @@ async def handle_enter_name(message: Message, state: FSMContext):
         return
 
     if not booking_id:
+        # HIGH-2 FIX: release slot_lock so slot is immediately freed for other users
+        _d = await state.get_data()
+        await storage.release_slot_lock(_d.get("date", ""), _d.get("time", ""), _d.get("master", ""))
         await message.answer(messages.SLOT_BUSY, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
         await state.set_state(BookingStates.choose_time)
         return
@@ -683,6 +689,10 @@ async def cb_cancel_booking(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_master")
 async def cb_back_to_master(callback: CallbackQuery, state: FSMContext):
+    # HIGH-8 FIX: release slot_lock if user had selected a time slot
+    _bm_data = await state.get_data()
+    if _bm_data.get("date") and _bm_data.get("time") and _bm_data.get("master"):
+        await storage.release_slot_lock(_bm_data["date"], _bm_data["time"], _bm_data["master"])
     # Clear FSM data when going back
     await state.update_data(service=None, date=None, time=None, name=None)
     await state.set_state(BookingStates.choose_master)

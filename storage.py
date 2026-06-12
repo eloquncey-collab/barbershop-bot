@@ -566,6 +566,11 @@ async def admin_cancel_booking(booking_id: str) -> dict | None:
                 return None
             booking = dict(row)
             await db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
+            # HIGH-1 FIX: release slot_lock so slot is immediately available
+            await db.execute(
+                "DELETE FROM slot_locks WHERE date=? AND time=? AND master=?",
+                (booking['date'], booking['time'], booking['master'])
+            )
             await db.execute("COMMIT")
             return booking
         except Exception:
@@ -779,8 +784,8 @@ async def get_service_stats(service_name: str) -> dict:
         )
         row = await cursor.fetchone()
         return {
-            "total": row[0], "active": row[1],
-            "completed": row[2], "revenue": row[3]
+            "total": row[0] or 0, "active": row[1] or 0,
+            "completed": row[2] or 0, "revenue": row[3] or 0
         }
 
 

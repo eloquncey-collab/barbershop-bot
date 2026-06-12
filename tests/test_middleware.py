@@ -75,7 +75,7 @@ class TestRateLimitMiddleware:
         # First passes, second blocked
         await mw(handler, event, {})
         await mw(handler, event, {})
-        event.answer.assert_called_with("Слишком много запросов. Подождите.", show_alert=True)
+        event.answer.assert_called_with("Слишком много запросов. Пожалуйста подождите.", show_alert=True)
 
 
 class TestAdminCheckMiddleware:
