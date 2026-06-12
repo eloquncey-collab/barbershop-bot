@@ -1,10 +1,20 @@
-﻿import os
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+# BUG-M6 FIX: Wrap ADMIN_IDS parsing in try/except
+import logging as _logging
+_cfg_logger = _logging.getLogger(__name__)
+ADMIN_IDS = []
+for _raw_id in os.getenv("ADMIN_IDS", "").split(","):
+    _raw_id = _raw_id.strip()
+    if _raw_id:
+        try:
+            ADMIN_IDS.append(int(_raw_id))
+        except ValueError:
+            _cfg_logger.warning(f"config: Invalid ADMIN_ID: {_raw_id} - must be int")
 
 # Telegram ID мастеров (формат в .env: "Имя1=123456789,Имя2=987654321")
 MASTER_IDS = {}
@@ -85,6 +95,7 @@ TIME_SLOTS = [
 # ========================================
 
 MAX_BOOKING_ATTEMPTS = 10
+MAX_ACTIVE_BOOKINGS = 3  # BUG-S6 FIX
 MIN_BOOKING_ADVANCE_MINUTES = int(os.getenv("MIN_BOOKING_ADVANCE_MINUTES", "60"))
 RATE_LIMIT_WINDOW = 1800
 

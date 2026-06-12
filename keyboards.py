@@ -117,12 +117,17 @@ def back_to_main_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def booking_success_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
-        [InlineKeyboardButton(text="Назад в меню", callback_data="main_menu")],
-    ])
-
+# UX-1 FIX: booking_id optional - adds quick cancel button
+def booking_success_kb(booking_id: str = None) -> InlineKeyboardMarkup:
+    buttons = []
+    if booking_id:
+        buttons.append([InlineKeyboardButton(
+            text="Отменить запись",
+            callback_data=f"ask_cancel:{booking_id}"
+        )])
+    buttons.append([InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")])
+    buttons.append([InlineKeyboardButton(text="Назад в меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def bookings_list_kb(bookings: list[dict]) -> InlineKeyboardMarkup:
     buttons = []

@@ -16,11 +16,68 @@ import scheduler
 from tz_utils import get_now, get_today, is_past
 from emoji_config import E, P
 from handlers.start import ContactStates
+from utils import edit_with_retry
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
+
+
+# BUG-S1 FIX: Shared booking finalization (DRY)
+async def _finalize_booking(booking: dict, booking_id: str, send_fn, bot) -> None:
+    """Send confirmation, notify admin/master, schedule reminders.
+    send_fn: async callable(text, reply_markup, parse_mode)
+    """
+    date_str = keyboards._format_date(booking["date"])
+    price_fmt = "{:,}".format(booking["price"]).replace(",", " ")
+    # BUG-C5 FIX: use BOOKING_CONFIRMED template instead of manual f-string assembly
+    text = messages.BOOKING_CONFIRMED.format(
+        date=date_str,
+        time=booking["time"],
+        master=html.escape(booking["master"]),
+        service=html.escape(booking["service"]),
+        price=price_fmt,
+        address=html.escape(config.BARBERSHOP_ADDRESS),
+    )
+    await send_fn(text, keyboards.booking_success_kb(booking_id), "HTML")
+
+    admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
+        name=html.escape(booking["name"]),
+        master=html.escape(booking["master"]),
+        service=html.escape(booking["service"]),
+        date=keyboards._format_date(booking["date"]),
+        time=booking["time"],
+        price=booking["price"],
+    )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+        except Exception as _e:
+            logger.error(f"Failed to notify admin {admin_id}: {_e}")
+
+    _master_tg_id = config.MASTER_IDS.get(booking["master"])
+    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
+        try:
+            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
+        except Exception as _e:
+            logger.error(f"Failed to notify master: {_e}")
+
+    bwi = booking.copy()
+    bwi["id"] = booking_id
+    await scheduler.schedule_reminders(bot, bwi)
+
+
+async def _safe_edit(msg, text, reply_markup=None, parse_mode="HTML"):
+    """BUG-S4 FIX: edit silently if MessageNotModified, else fallback to answer."""
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as _e:
+        if "message is not modified" not in str(_e).lower():
+            try:
+                await msg.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            except Exception:
+                pass
 
 
 class BookingStates(StatesGroup):
@@ -159,13 +216,13 @@ async def cb_book(callback: CallbackQuery, state: FSMContext):
     if await storage.has_active_booking(telegram_id):
         try:
             await callback.message.edit_text(
-                messages.ONE_ACTIVE_BOOKING,
+                messages.max_bookings_reached_text(),
                 reply_markup=keyboards.back_to_main_kb(),
                 parse_mode="HTML"
             )
         except Exception:
             await callback.message.answer(
-                messages.ONE_ACTIVE_BOOKING,
+                messages.max_bookings_reached_text(),
                 reply_markup=keyboards.back_to_main_kb(),
                 parse_mode="HTML"
             )
@@ -192,18 +249,11 @@ async def cb_book(callback: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(BookingStates.choose_master)
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             messages.CHOOSE_MASTER,
             reply_markup=keyboards.masters_kb(),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            messages.CHOOSE_MASTER,
-            reply_markup=keyboards.masters_kb(),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -237,18 +287,11 @@ async def cb_choose_master(callback: CallbackQuery, state: FSMContext):
         master_info['specialization']
     )
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=await keyboards.services_kb(master_name=master_name),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=await keyboards.services_kb(master_name=master_name),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -281,18 +324,11 @@ async def cb_choose_service(callback: CallbackQuery, state: FSMContext):
     
     text = messages.service_selected(service_name, price)
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=keyboards.dates_kb(dates),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboards.dates_kb(dates),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -356,18 +392,11 @@ async def cb_choose_date(callback: CallbackQuery, state: FSMContext):
     text = messages.date_selected(date_formatted)
     text = text.replace("Выберите свободный слот:", f"Свободно: {free_count} | Занято: {busy_count}\n\nВыберите свободный слот:")
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=keyboards.time_slots_kb(slots),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboards.time_slots_kb(slots),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -442,18 +471,11 @@ async def cb_choose_time(callback: CallbackQuery, state: FSMContext):
     name_rows.append([InlineKeyboardButton(text="Отменить", callback_data="cancel_booking")])
     back_kb = InlineKeyboardMarkup(inline_keyboard=name_rows)
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=back_kb,
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=back_kb,
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -498,49 +520,13 @@ async def cb_use_tg_name(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    date_str = keyboards._format_date(booking["date"])
-    text = f"{E.CHECK} <b>Запись подтверждена!</b>\n\n"
-    text += f"{E.CALENDAR} {date_str} в {booking['time']}\n"
-    text += f"{E.SCISSORS} {html.escape(booking['master'])}\n"
-    svc = html.escape(booking['service'])
-    price_fmt = "{:,}".format(booking["price"]).replace(",", " ")
-    text += f"{E.LIST} {svc} — {price_fmt} ₸\n\n"
-    text += f"{E.LOCATION} {html.escape(config.BARBERSHOP_ADDRESS)}\n\n"
-    text += "Напоминания:\n"
-    text += "• За 24 часа до визита\n"
-    text += "• За 2 часа до визита\n\n"
-    text += f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
-
-    await callback.message.answer(text, reply_markup=keyboards.booking_success_kb(), parse_mode="HTML")
-
-    admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
-        name=html.escape(booking["name"]),
-        master=html.escape(booking["master"]),
-        service=html.escape(booking["service"]),
-        date=keyboards._format_date(booking["date"]),
-        time=booking["time"],
-        price=booking["price"],
-    )
+    # BUG-S1+C5 FIX: use shared _finalize_booking (DRY + BOOKING_CONFIRMED template)
     bot = callback.bot
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    master_name = booking["master"]
-    # FIX: не дублируем, если telegram_id мастера уже в ADMIN_IDS
-    _master_tg_id = config.MASTER_IDS.get(master_name)
-    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
-        try:
-            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify master {master_name}: {e}")
-
-    booking_with_id = booking.copy()
-    booking_with_id["id"] = booking_id
-    await scheduler.schedule_reminders(bot, booking_with_id)
-
+    await _finalize_booking(
+        booking, booking_id,
+        lambda text, kb, pm: callback.message.answer(text, reply_markup=kb, parse_mode=pm),
+        bot
+    )
     await state.clear()
     await callback.answer()
 
@@ -583,18 +569,11 @@ async def cb_waitlist(callback: CallbackQuery, state: FSMContext):
         date=data["date"],
         time=time_str,
     )
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             messages.WAITLIST_ADDED.format(date=keyboards._format_date(data["date"]), time=time_str),
             reply_markup=keyboards.back_to_main_kb(),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            messages.WAITLIST_ADDED.format(date=keyboards._format_date(data["date"]), time=time_str),
-            reply_markup=keyboards.back_to_main_kb(),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -652,49 +631,13 @@ async def handle_enter_name(message: Message, state: FSMContext):
         await state.set_state(BookingStates.choose_time)
         return
 
-    date_str = keyboards._format_date(booking["date"])
-    text = f"{E.CHECK} <b>Запись подтверждена!</b>\n\n"
-    text += f"{E.CALENDAR} {date_str} в {booking['time']}\n"
-    text += f"{E.SCISSORS} {html.escape(booking['master'])}\n"
-    svc = html.escape(booking['service'])
-    price_fmt = "{:,}".format(booking["price"]).replace(",", " ")
-    text += f"{E.LIST} {svc} — {price_fmt} ₸\n\n"
-    text += f"{E.LOCATION} {html.escape(config.BARBERSHOP_ADDRESS)}\n\n"
-    text += "Напоминания:\n"
-    text += "• За 24 часа до визита\n"
-    text += "• За 2 часа до визита\n\n"
-    text += f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
-
-    await message.answer(text, reply_markup=keyboards.booking_success_kb(), parse_mode="HTML")
-
-    admin_text = messages.ADMIN_BOOKING_NOTIFY.format(
-        name=html.escape(booking["name"]),
-        master=html.escape(booking["master"]),
-        service=html.escape(booking["service"]),
-        date=keyboards._format_date(booking["date"]),
-        time=booking["time"],
-        price=booking["price"],
-    )
+    # BUG-S1+C5 FIX: use shared _finalize_booking
     bot = message.bot
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    master_name = booking["master"]
-    # FIX: не дублируем, если telegram_id мастера уже в ADMIN_IDS
-    _master_tg_id = config.MASTER_IDS.get(master_name)
-    if _master_tg_id and _master_tg_id not in config.ADMIN_IDS:
-        try:
-            await bot.send_message(_master_tg_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to notify master {master_name}: {e}")
-
-    booking_with_id = booking.copy()
-    booking_with_id["id"] = booking_id
-    await scheduler.schedule_reminders(bot, booking_with_id)
-
+    await _finalize_booking(
+        booking, booking_id,
+        lambda text, kb, pm: message.answer(text, reply_markup=kb, parse_mode=pm),
+        bot
+    )
     await state.clear()
 
 
@@ -702,19 +645,20 @@ async def handle_enter_name(message: Message, state: FSMContext):
 async def cb_confirm_deprecated(callback: CallbackQuery, state: FSMContext):
     """Task 1: Устаревший хендлер — запись создаётся в handle_enter_name.
     При нажатии старой кнопки — очищаем состояние и показываем сообщение."""
+    # BUG-C1 FIX: Check FSM state before clearing to avoid destroying active booking session
+    current_state = await state.get_state()
+    if current_state is not None:
+        await callback.answer(
+            "Вы в процессе записи. Завершите или отмените запись.",
+            show_alert=True
+        )
+        return
     await state.clear()
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             f"{E.INFO} Сессия устарела. Начните запись заново.",
             reply_markup=keyboards.back_to_main_kb(),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            f"{E.INFO} Сессия устарела. Начните запись заново.",
-            reply_markup=keyboards.back_to_main_kb(),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "cancel_booking")
@@ -742,18 +686,11 @@ async def cb_back_to_master(callback: CallbackQuery, state: FSMContext):
     # Clear FSM data when going back
     await state.update_data(service=None, date=None, time=None, name=None)
     await state.set_state(BookingStates.choose_master)
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             messages.CHOOSE_MASTER,
             reply_markup=keyboards.masters_kb(),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            messages.CHOOSE_MASTER,
-            reply_markup=keyboards.masters_kb(),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -763,18 +700,11 @@ async def cb_back_to_service(callback: CallbackQuery, state: FSMContext):
     await state.update_data(date=None, time=None, name=None)
     await state.set_state(BookingStates.choose_service)
     data = await state.get_data()
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             messages.CHOOSE_SERVICE,
             reply_markup=await keyboards.services_kb(master_name=data.get("master", "")),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            messages.CHOOSE_SERVICE,
-            reply_markup=await keyboards.services_kb(master_name=data.get("master", "")),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -794,18 +724,11 @@ async def cb_back_to_date(callback: CallbackQuery, state: FSMContext):
         # Добавляем информацию о выбранной услуге
         text = f"{E.CHECK} {data['service']} — {data.get('price', 0):,} ₸\n\n".replace(",", " ") + text
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=keyboards.dates_kb(dates),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboards.dates_kb(dates),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -829,18 +752,11 @@ async def cb_back_to_time(callback: CallbackQuery, state: FSMContext):
     text = messages.date_selected(date_formatted)
     text = text.replace("Выберите свободный слот:", f"Свободно: {free_count} | Занято: {busy_count}\n\nВыберите свободный слот:")
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=keyboards.time_slots_kb(slots),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboards.time_slots_kb(slots),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -882,18 +798,11 @@ async def cb_go_to_waitlist(callback: CallbackQuery, state: FSMContext):
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="back_to_time")])
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -908,7 +817,7 @@ async def cb_remind_confirm(callback: CallbackQuery, bot: Bot):
                 f"{E.CHECK} <b>Клиент подтвердил визит</b>\n\n"
                 f"{E.USER} {html.escape(booking['name'])} — "
                 f"{keyboards._format_date(booking['date'])} в {booking['time']}\n"
-                f"{E.MASTER} Мастер: {html.escape(booking['master'])}"
+                f"{E.SCISSORS} Мастер: {html.escape(booking['master'])}"
             )
             for admin_id in config.ADMIN_IDS:
                 try:
@@ -917,10 +826,6 @@ async def cb_remind_confirm(callback: CallbackQuery, bot: Bot):
                     pass
     except Exception as e:
         logger.error(f"Failed to notify admin on remind_confirm: {e}")
-    try:
-        await callback.message.edit_text(f"{E.CHECK} <b>Визит подтверждён. Ждём вас!</b>", parse_mode="HTML")
-    except Exception:
-        await callback.message.answer(f"{E.CHECK} <b>Визит подтверждён. Ждём вас!</b>", parse_mode="HTML")
     # Task 13: Обратная связь пользователю после подтверждения
     try:
         await callback.message.edit_text(
@@ -1010,18 +915,11 @@ async def cb_review(callback: CallbackQuery, state: FSMContext):
     text += f"{E.COMMENT} Хотите оставить комментарий?\n\n"
     text += "Напишите ваш отзыв или нажмите «Пропустить»:"
     
-    try:
-        await callback.message.edit_text(
+    await _safe_edit(callback.message,
             text,
             reply_markup=keyboards.skip_comment_kb(),
             parse_mode="HTML"
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboards.skip_comment_kb(),
-            parse_mode="HTML"
-        )
+    )
     await callback.answer()
 
 
@@ -1102,3 +1000,38 @@ async def cb_skip_comment(callback: CallbackQuery, state: FSMContext):
 
 
 
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message, state):
+    # UX-3 FIX: /cancel command handler
+    from aiogram.types import Message
+    current_state = await state.get_state()
+    if current_state is not None:
+        data = await state.get_data()
+        if data.get("date") and data.get("time") and data.get("master"):
+            try:
+                await storage.release_slot_lock(data["date"], data["time"], data["master"])
+            except Exception:
+                pass
+        await state.clear()
+        await message.answer(
+            f"{E.INFO} Сессия записи отменена.\n\n"
+            "Для отмены активных записей используйте «Мои записи».",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
+        return
+    bookings = await storage.get_user_bookings(message.from_user.id)
+    if not bookings:
+        await message.answer(
+            messages.NO_ACTIVE_BOOKING,
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
+        return
+    await message.answer(
+        f"{E.LIST} <b>Ваши активные записи:</b>\n\nВыберите запись для отмены:",
+        reply_markup=keyboards.bookings_list_kb(bookings),
+        parse_mode="HTML"
+    )

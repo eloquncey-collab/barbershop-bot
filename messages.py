@@ -80,13 +80,17 @@ BOOKING_CONFIRM = (
     "Всё верно?"
 )
 
+# BUG-C5 FIX: expanded template (date, time, master, service, price, address)
 BOOKING_CONFIRMED = (
     f"{E.CHECK} <b>Запись подтверждена!</b>\n\n"
-    f"{E.CALENDAR} <b>Дата:</b> {{date}}\n"
-    f"{E.CLOCK} <b>Время:</b> {{time}}\n"
-    f"{E.SCISSORS} <b>Мастер:</b> {{master}}\n\n"
+    f"{E.CALENDAR} {{date}} в {{time}}\n"
+    f"{E.SCISSORS} {{master}}\n"
+    f"{E.LIST} {{service}} — {{price}} ₸\n\n"
     f"{E.LOCATION} {{address}}\n\n"
-    "Ждём вас! Напомним за 24 ч и за 2 ч до визита."
+    "Напоминания:\n"
+    "• За 24 часа до визита\n"
+    "• За 2 часа до визита\n\n"
+    f"{E.INFO} <i>Бонус лояльности засчитывается после завершения визита.</i>"
 )
 
 BOOKING_CANCELLED = (
@@ -104,11 +108,16 @@ RATE_LIMIT = (
     "Попробуйте через 30 минут."
 )
 
-ONE_ACTIVE_BOOKING = (
-    f"{E.EXCLAMATION} <b>У вас уже 3 активных записи (максимум).</b>\n\n"
-    "Просмотреть записи — «Мои записи».\n"
-    "Отменить — нажмите «Мои записи» → выберите запись → «Отменить запись»."
-)
+# BUG-S6 FIX: dynamic limit from config
+def max_bookings_reached_text() -> str:
+    import config as _cfg
+    return (
+        f"{E.EXCLAMATION} <b>У вас уже {_cfg.MAX_ACTIVE_BOOKINGS} активных записей (максимум).</b>\n\n"
+        "Просмотреть записи — «Мои записи».\n"
+        "Отменить — нажмите «Мои записи» → выберите запись → «Отменить запись»."
+    )
+
+ONE_ACTIVE_BOOKING = max_bookings_reached_text()
 
 NO_ACTIVE_BOOKING ="У вас нет активных записей."
 
@@ -232,7 +241,7 @@ def get_about_text() -> str:
         f"{E.PHONE} {_cfg.BARBERSHOP_PHONE}\n"
         f"{E.CLOCK} {_cfg.BARBERSHOP_WORKING_HOURS}"
     )
-ABOUT = get_about_text()  # обратная совместимость
+# BUG-S5 FIX: ABOUT removed. Always call messages.get_about_text() for live config.
 
 WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",

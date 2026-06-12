@@ -72,7 +72,9 @@ async def send_reminder_24h(bot, booking: dict):
             parse_mode="HTML",
         )
     except TelegramForbiddenError:
-        logger.warning(f"User blocked bot - 24h reminder skipped")
+        # BUG-M2 FIX: cancel all future reminders to avoid log spam
+        logger.warning(f"User {booking['telegram_id']} blocked bot - cancelling reminders for booking {booking['id']}")
+        await cancel_reminders(booking["id"])
     except TelegramRetryAfter as e:
         logger.warning(f"Rate limited {e.retry_after}s - 24h reminder skipped")
     except Exception as e:
@@ -94,7 +96,9 @@ async def send_reminder_2h(bot, booking: dict):
             parse_mode="HTML",
         )
     except TelegramForbiddenError:
-        logger.warning(f"User blocked bot - 2h reminder skipped")
+        # BUG-M2 FIX: cancel future reminders
+        logger.warning(f"User {booking['telegram_id']} blocked bot - cancelling reminders for booking {booking['id']}")
+        await cancel_reminders(booking["id"])
     except TelegramRetryAfter as e:
         logger.warning(f"Rate limited {e.retry_after}s - 2h reminder skipped")
     except Exception as e:

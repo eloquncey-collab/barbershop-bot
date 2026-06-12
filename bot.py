@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
@@ -101,7 +101,7 @@ async def main():
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent):
-        logger.error("Global error handler caught exception", exc_info=True)
+        logger.error("Global error: %s", event.exception, exc_info=True)
         try:
             if event.update.message:
                 await event.update.message.answer("Произошла ошибка. Попробуйте позже.")
