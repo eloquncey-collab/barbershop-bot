@@ -165,7 +165,7 @@ def phone_kb() -> ReplyKeyboardMarkup:
 def review_kb(booking_id: str) -> InlineKeyboardMarkup:
     buttons = []
     row = []
-    labels = ["1", "2", "3", "4", "5"]
+    labels = ["1 ⭐", "2 ⭐⭐", "3 ⭐⭐⭐", "4 ⭐⭐⭐⭐", "5 ⭐⭐⭐⭐⭐"]
     for i, label in enumerate(labels, start=1):
         row.append(InlineKeyboardButton(text=label, callback_data=f"review:{booking_id}:{i}"))
     buttons.append(row)
