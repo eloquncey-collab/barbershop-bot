@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 import aiosqlite
 from datetime import datetime, timedelta
 import config
@@ -996,6 +996,27 @@ async def cleanup_slot_locks_on_startup():
         logger.warning(f"Failed to cleanup slot_locks: {e}")
 
 
+
+async def cleanup_expired_slot_locks() -> int:
+    '''
+    BUG-C4 FIX: Deletes only expired slot_locks by TTL.
+    Called periodically by scheduler every 2 minutes.
+    Returns the count of removed rows.
+    '''
+    try:
+        async with aiosqlite.connect(config.DB_PATH) as db:
+            now = get_now(config.TIMEZONE).isoformat()
+            cursor = await db.execute(
+                'DELETE FROM slot_locks WHERE expires_at < ?', (now,)
+            )
+            await db.commit()
+            deleted = cursor.rowcount
+            if deleted:
+                logger.info(f'Periodic cleanup: removed {deleted} expired slot_lock(s)')
+            return deleted
+    except Exception as e:
+        logger.warning(f'Failed to cleanup expired slot_locks: {e}')
+        return 0
 async def get_user_waitlist_count(telegram_id: int) -> int:
     """Task 15: Проверяет количество активных записей в листе ожидания"""
     async with aiosqlite.connect(config.DB_PATH) as db:
@@ -1023,3 +1044,4 @@ async def get_user_by_ref_code(ref_code: str) -> dict | None:
 
 
 # CRIT-03 FIX: duplicate get_user_waitlist and get_master_stats removed — canonical definitions kept above
+

@@ -213,6 +213,16 @@ async def start_scheduler(bot):
             replace_existing=True,
         )
         logger.info("Scheduled daily cleanup of old bookings at 3:00 AM")
+
+        # BUG-C4 FIX: Periodic cleanup of expired slot_locks every 2 minutes
+        scheduler.add_job(
+            cleanup_slot_locks_job,
+            trigger='interval',
+            minutes=2,
+            id='cleanup_slot_locks',
+            replace_existing=True,
+        )
+        logger.info("Scheduled periodic slot_locks cleanup every 2 minutes")
         
         # Recovery: load jobs from DB and reschedule them
         try:
@@ -297,6 +307,18 @@ async def cleanup_old_bookings_job():
     except Exception as e:
         logger.error(f"Failed to cleanup old bookings: {e}")
 
+
+
+
+async def cleanup_slot_locks_job():
+    """BUG-C4 FIX: Periodic job to remove expired slot_locks every 2 minutes.
+    Prevents ghost-locked slots when users abandon booking mid-flow."""
+    try:
+        deleted = await storage.cleanup_expired_slot_locks()
+        if deleted:
+            logger.debug(f"cleanup_slot_locks_job: cleared {deleted} expired lock(s)")
+    except Exception as e:
+        logger.error(f"cleanup_slot_locks_job failed: {e}")
 
 def shutdown_scheduler():
     if scheduler.running:
