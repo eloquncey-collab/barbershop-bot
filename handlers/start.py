@@ -208,6 +208,36 @@ async def cb_booking_detail(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("cancel_book:"))
+async def cb_cancel_book(callback: CallbackQuery):
+    """BUG-FIX: Handler for cancel_book: callbacks from cancel_bookings_kb (/cancel command).
+    Was missing => caused 'Update is not handled' and button endlessly loading.
+    """
+    booking_id = callback.data.split(":", 1)[1]
+    bookings = await storage.get_user_bookings(callback.from_user.id)
+    booking = next((b for b in bookings if b['id'] == booking_id), None)
+
+    if not booking:
+        from emoji_config import P
+        await callback.answer(f"{P.CROSS} Запись не найдена", show_alert=True)
+        return
+
+    date_str = keyboards._format_date(booking['date'])
+    text = f"{E.WARNING} <b>Подтвердите отмену</b>\n\n"
+    text += f"Вы действительно хотите отменить запись?\n\n"
+    text += f"{E.CALENDAR} <b>Дата:</b> {date_str}\n"
+    text += f"{E.CLOCK} <b>Время:</b> {booking['time']}\n"
+    text += f"{E.MASTER} <b>Мастер:</b> {booking['master']}\n"
+    text += f"{E.BARBER} <b>Услуга:</b> {booking['service']}\n\n"
+    text += f"{E.IDEA} <b>Это действие нельзя отменить!</b>"
+
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboards.confirm_cancel_kb(booking_id), parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=keyboards.confirm_cancel_kb(booking_id), parse_mode="HTML")
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("ask_cancel:"))
 async def cb_ask_cancel(callback: CallbackQuery):
     # TASK-06: Show warning before cancellation
