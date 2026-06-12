@@ -128,20 +128,10 @@ async def _get_available_slots(date_str: str, master: str) -> dict[str, str]:
             booked = {s["time"] for s in booked_slots}
         except Exception as e:
             logger.error(f"Failed to get booked slots: {e}")
-        # MED-07 FIX: Also mark slot_locks as busy so user doesn't see a slot
-        # as free while another user is in the booking process (5-min TTL)
+        # MED-07 FIX: Also mark slot_locks as busy (uses storage layer, works with PG & SQLite)
         try:
-            import aiosqlite
-            from tz_utils import get_now as _get_now
-            now_iso = _get_now(config.TIMEZONE).isoformat()
-            async with aiosqlite.connect(config.DB_PATH) as db:
-                cursor = await db.execute(
-                    "SELECT time FROM slot_locks WHERE date=? AND master=? AND expires_at > ?",
-                    (date_str, master, now_iso)
-                )
-                locked_rows = await cursor.fetchall()
-                for row in locked_rows:
-                    booked.add(row[0])
+            locked = await storage.get_locked_slots(date_str, master)
+            booked.update(locked)
         except Exception as e:
             logger.warning(f"Failed to check slot_locks: {e}")
     time_slots = _generate_time_slots(date_str)
@@ -306,7 +296,13 @@ async def cb_choose_service(callback: CallbackQuery, state: FSMContext):
         await callback.answer(f"{P.CROSS} Услуга не найдена", show_alert=True)
         return
     
-    price = config.SERVICES.get(service_name, 0)
+    # FIX: use per-master price if set, otherwise global price
+    _data_master = await state.get_data()
+    _master_for_price = _data_master.get("master", "")
+    if _master_for_price:
+        price = await storage.get_effective_price(_master_for_price, service_name)
+    else:
+        price = config.SERVICES.get(service_name, 0)
     await state.update_data(service=service_name, price=price)
     await state.set_state(BookingStates.choose_date)
     data = await state.get_data()

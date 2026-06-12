@@ -37,20 +37,31 @@ def test_format_zero():
 
 @pytest.mark.asyncio
 async def test_check_db_ok():
+    """check_db_health now uses db.acquire() instead of aiosqlite directly."""
     import monitoring
-    with patch("aiosqlite.connect") as mc:
-        db = AsyncMock()
-        db.__aenter__ = AsyncMock(return_value=db)
-        db.__aexit__ = AsyncMock(return_value=False)
-        db.execute = AsyncMock()
-        mc.return_value = db
+    import db as _db
+    conn_mock = AsyncMock()
+    conn_mock.fetchval = AsyncMock(return_value=1)
+    from unittest.mock import patch
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def _fake_acquire():
+        yield conn_mock
+    with patch.object(_db, "acquire", _fake_acquire):
         result = await monitoring.check_db_health()
     assert result is True
 
 @pytest.mark.asyncio
 async def test_check_db_fail():
+    """check_db_health returns False when DB raises."""
     import monitoring
-    with patch("aiosqlite.connect", side_effect=Exception("err")):
+    import db as _db
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def _fail_acquire():
+        raise Exception("simulated DB error")
+        yield
+    with patch.object(_db, "acquire", _fail_acquire):
         result = await monitoring.check_db_health()
     assert result is False
 

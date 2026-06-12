@@ -40,7 +40,6 @@ class AdminStates(StatesGroup):
     set_master_work_days = State()
     set_master_services = State()
     set_master_price = State()    # per-master price editing
-    set_master_price = State()    # per-master price editing
 
 
 @router.message(Command("admin"))
@@ -571,13 +570,8 @@ async def cb_admin_remove_service(callback: CallbackQuery):
         return
     # Check active bookings for this service
     try:
-        import aiosqlite
-        async with aiosqlite.connect(config.DB_PATH) as db:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM bookings WHERE service=? AND status='active'",
-                (service_name,)
-            )
-            active_count = (await cursor.fetchone())[0]
+        _svc_stats = await storage.get_service_stats(service_name)
+        active_count = _svc_stats.get("active", 0)
         if active_count > 0:
             await callback.answer(
                 f"Невозможно удалить услугу «{service_name}»: есть {active_count} активных записей. Сначала завершите или отмените их.",

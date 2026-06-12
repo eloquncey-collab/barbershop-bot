@@ -20,14 +20,12 @@ def get_uptime() -> float:
 
 
 async def check_db_health() -> bool:
-    """Check if database is accessible"""
+    """Check if database is accessible (works with both SQLite and PostgreSQL)."""
     try:
-        import storage
-        import config
-        import aiosqlite
-        async with aiosqlite.connect(config.DB_PATH) as db:
-            await db.execute("SELECT 1")
-            return True
+        import db as _db
+        async with _db.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        return True
     except Exception as e:
         logger.error(f"DB health check failed: {e}")
         return False

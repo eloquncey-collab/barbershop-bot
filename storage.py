@@ -193,6 +193,9 @@ async def _init_pg() -> None:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_loyalty_telegram ON loyalty(telegram_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_reviews_booking ON reviews(booking_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)")
+        # Migrate existing schema (no-op on fresh DB)
+        await _migrate_masters_columns(conn)
+        await _migrate_master_prices(conn)
 
 
 async def _init_sqlite() -> None:
@@ -547,25 +550,9 @@ async def export_bookings_csv() -> list[dict]:
 
 async def cleanup_old_bookings(days: int = 90) -> int:
     cutoff_date = (get_now(config.TIMEZONE) - timedelta(days=days)).strftime("%Y-%m-%d")
+    sql = "DELETE FROM bookings WHERE date < ? AND status IN ('cancelled', 'completed')"
     async with _db.acquire() as conn:
-        if _db.is_postgres():
-            r = await conn.execute(
-                "DELETE FROM bookings WHERE date < ? AND status IN ('cancelled', 'completed')",
-                cutoff_date,
-            )
-            # asyncpg returns "DELETE N" string
-            try:
-                return int(str(r).split()[-1])
-            except Exception:
-                return 0
-        else:
-            async with conn._conn.execute(
-                "DELETE FROM bookings WHERE date < ? AND status IN ('cancelled', 'completed')",
-                (cutoff_date,)
-            ) as cursor:
-                deleted = cursor.rowcount
-            await conn.commit()
-            return deleted
+        return await conn.execute_count(sql, cutoff_date)
 
 
 async def has_active_booking(telegram_id: int) -> bool:
@@ -855,8 +842,9 @@ async def get_bookings_summary(date_str: str) -> dict:
             "FROM bookings WHERE date=?",
             date_str,
         )
-        return {"total": row[0] or 0, "active": row[1] or 0, "cancelled": row[2] or 0,
-                "completed": row[3] or 0, "revenue": row[4] or 0}
+        return {"total": row["total"] or 0, "active": row["active"] or 0,
+                "cancelled": row["cancelled"] or 0, "completed": row["completed"] or 0,
+                "revenue": row["revenue"] or 0}
 
 
 # ======================================================================
@@ -1024,6 +1012,21 @@ async def get_all_master_service_prices(master: str) -> dict[str, int]:
         return {r["service"]: r["price"] for r in rows}
 
 
+async def get_locked_slots(date: str, master: str) -> set[str]:
+    """Return set of time strings currently locked (slot_locks not expired) for given date/master."""
+    try:
+        now_iso = get_now(config.TIMEZONE).isoformat()
+        async with _db.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT time FROM slot_locks WHERE date=? AND master=? AND expires_at > ?",
+                date, master, now_iso,
+            )
+            return {r["time"] for r in rows}
+    except Exception as e:
+        logger.warning(f"get_locked_slots failed: {e}")
+        return set()
+
+
 async def get_effective_price(master: str, service: str) -> int:
     """Return master-specific price if set, otherwise global price from config."""
     custom = await get_master_service_price(master, service)
@@ -1111,16 +1114,7 @@ async def cleanup_expired_slot_locks() -> int:
     try:
         now = get_now(config.TIMEZONE).isoformat()
         async with _db.acquire() as conn:
-            if _db.is_postgres():
-                r = await conn.execute("DELETE FROM slot_locks WHERE expires_at < ?", now)
-                try:
-                    deleted = int(str(r).split()[-1])
-                except Exception:
-                    deleted = 0
-            else:
-                async with conn._conn.execute("DELETE FROM slot_locks WHERE expires_at < ?", (now,)) as cur:
-                    deleted = cur.rowcount
-                await conn.commit()
+            deleted = await conn.execute_count("DELETE FROM slot_locks WHERE expires_at < ?", now)
             if deleted:
                 logger.info(f"Periodic cleanup: removed {deleted} expired slot_lock(s)")
             return deleted

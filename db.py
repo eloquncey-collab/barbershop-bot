@@ -31,6 +31,7 @@ def is_postgres() -> bool:
     return _use_pg
 
 def _q2d(sql: str) -> str:
+    """Convert ? placeholders to $1, $2, ... for PostgreSQL."""
     n = 0
     r = []
     for c in sql:
@@ -41,68 +42,118 @@ def _q2d(sql: str) -> str:
             r.append(c)
     return "".join(r)
 
+_RX_INSERT_OR_IGNORE = re.compile(
+    r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", re.IGNORECASE
+)
+
 class DBConn:
     __slots__ = ("_conn", "_is_pg")
-    def __init__(self, conn, is_pg): self._conn = conn; self._is_pg = is_pg
 
-    async def fetch(self, sql, *a):
+    def __init__(self, conn, is_pg: bool):
+        self._conn = conn
+        self._is_pg = is_pg
+
+    async def fetch(self, sql: str, *a) -> list[dict]:
         if self._is_pg:
             return [dict(r) for r in await self._conn.fetch(_q2d(sql), *a)]
-        import aiosqlite; self._conn.row_factory = aiosqlite.Row
-        async with self._conn.execute(sql, a) as c: return [dict(r) for r in await c.fetchall()]
-
-    async def fetchrow(self, sql, *a):
-        if self._is_pg:
-            r = await self._conn.fetchrow(_q2d(sql), *a); return dict(r) if r else None
-        import aiosqlite; self._conn.row_factory = aiosqlite.Row
+        import aiosqlite
+        self._conn.row_factory = aiosqlite.Row
         async with self._conn.execute(sql, a) as c:
-            r = await c.fetchone(); return dict(r) if r else None
+            return [dict(r) for r in await c.fetchall()]
 
-    async def fetchval(self, sql, *a):
-        if self._is_pg: return await self._conn.fetchval(_q2d(sql), *a)
-        async with self._conn.execute(sql, a) as c:
-            r = await c.fetchone(); return r[0] if r else None
-
-    async def execute(self, sql, *a):
+    async def fetchrow(self, sql: str, *a) -> Optional[dict]:
         if self._is_pg:
-            sql = re.sub(r"INSERT\s+OR\s+IGNORE\s+INTO","INSERT INTO",sql,flags=re.IGNORECASE)
-            if "INSERT OR IGNORE" in sql.upper(): sql = sql.rstrip() + " ON CONFLICT DO NOTHING"
-            if re.search(r"INSERT INTO", sql, re.IGNORECASE) and "ON CONFLICT" not in sql.upper() and re.search(r"OR\s+IGNORE",sql,re.IGNORECASE):
+            r = await self._conn.fetchrow(_q2d(sql), *a)
+            return dict(r) if r else None
+        import aiosqlite
+        self._conn.row_factory = aiosqlite.Row
+        async with self._conn.execute(sql, a) as c:
+            r = await c.fetchone()
+            return dict(r) if r else None
+
+    async def fetchval(self, sql: str, *a) -> Any:
+        if self._is_pg:
+            return await self._conn.fetchval(_q2d(sql), *a)
+        async with self._conn.execute(sql, a) as c:
+            r = await c.fetchone()
+            return r[0] if r else None
+
+    async def execute(self, sql: str, *a) -> None:
+        """Execute a statement.  INSERT OR IGNORE is auto-translated for PG."""
+        if self._is_pg:
+            # Detect BEFORE substitution
+            _had_ignore = bool(_RX_INSERT_OR_IGNORE.search(sql))
+            sql = _RX_INSERT_OR_IGNORE.sub("INSERT INTO", sql)
+            if _had_ignore and "ON CONFLICT" not in sql.upper():
                 sql = sql.rstrip() + " ON CONFLICT DO NOTHING"
             await self._conn.execute(_q2d(sql), *a)
         else:
             await self._conn.execute(sql, a)
 
-    async def commit(self):
-        if not self._is_pg: await self._conn.commit()
+    async def commit(self) -> None:
+        if not self._is_pg:
+            await self._conn.commit()
 
-    async def upsert(self, table, conflict_cols, data):
-        cols = list(data.keys()); vals = list(data.values())
+    async def execute_count(self, sql: str, *a) -> int:
+        """Execute DELETE/UPDATE and return number of affected rows (both backends)."""
         if self._is_pg:
-            pg_ph = ", ".join(f"${i+1}" for i in range(len(vals)))
+            status = await self._conn.execute(_q2d(sql), *a)
+            try:
+                return int(str(status).split()[-1])
+            except Exception:
+                return 0
+        else:
+            async with self._conn.execute(sql, a) as cur:
+                count = cur.rowcount
+            await self._conn.commit()
+            return count if count >= 0 else 0
+
+    async def upsert(self, table: str, conflict_cols: list[str], data: dict) -> None:
+        """INSERT ... ON CONFLICT (conflict_cols) DO UPDATE SET ...  (both backends)."""
+        cols = list(data.keys())
+        vals = list(data.values())
+        cols_sql = ", ".join(cols)
+        if self._is_pg:
+            pg_ph = ", ".join(f"${i + 1}" for i in range(len(vals)))
             conflict = ", ".join(conflict_cols)
-            update_set = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in conflict_cols)
-            sql = (f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({pg_ph}) ON CONFLICT ({conflict}) DO " +
-                   (f"UPDATE SET {update_set}" if update_set else "NOTHING"))
+            update_set = ", ".join(
+                f"{c}=EXCLUDED.{c}" for c in cols if c not in conflict_cols
+            )
+            sql = (
+                f"INSERT INTO {table} ({cols_sql}) VALUES ({pg_ph}) "
+                f"ON CONFLICT ({conflict}) DO "
+                + (f"UPDATE SET {update_set}" if update_set else "NOTHING")
+            )
             await self._conn.execute(sql, *vals)
         else:
             ph = ", ".join("?" for _ in vals)
-            await self._conn.execute(f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}) VALUES ({ph})", vals)
+            await self._conn.execute(
+                f"INSERT OR REPLACE INTO {table} ({cols_sql}) VALUES ({ph})", vals
+            )
             await self._conn.commit()
 
     @asynccontextmanager
     async def transaction(self):
         if self._is_pg:
-            async with self._conn.transaction(): yield self
+            async with self._conn.transaction():
+                yield self
         else:
             await self._conn.execute("BEGIN EXCLUSIVE")
-            try: yield self; await self._conn.commit()
-            except: await self._conn.execute("ROLLBACK"); raise
+            try:
+                yield self
+                await self._conn.commit()
+            except Exception:
+                await self._conn.execute("ROLLBACK")
+                raise
+
 
 @asynccontextmanager
 async def acquire():
+    """Acquire a DB connection (PostgreSQL pool or SQLite file)."""
     if _use_pg:
-        async with _pool.acquire() as raw: yield DBConn(raw, True)
+        async with _pool.acquire() as raw:
+            yield DBConn(raw, True)
     else:
         import aiosqlite, config
-        async with aiosqlite.connect(config.DB_PATH) as raw: yield DBConn(raw, False)
+        async with aiosqlite.connect(config.DB_PATH) as raw:
+            yield DBConn(raw, False)
