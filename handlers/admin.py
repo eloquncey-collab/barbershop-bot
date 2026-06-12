@@ -39,6 +39,8 @@ class AdminStates(StatesGroup):
     set_master_tg = State()
     set_master_work_days = State()
     set_master_services = State()
+    set_master_price = State()    # per-master price editing
+    set_master_price = State()    # per-master price editing
 
 
 @router.message(Command("admin"))
@@ -1494,3 +1496,152 @@ async def cb_save_master_services(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Error in save_master_services: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
     await callback.answer()
+
+
+# ======================================================================
+# Per-master service prices admin UI
+# ======================================================================
+
+@router.callback_query(F.data.startswith("master_prices:"))
+async def cb_master_prices(callback: CallbackQuery, state: FSMContext):
+    """Show per-master service price editor."""
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(messages.ADMIN_ONLY, show_alert=True)
+        return
+    master_name = callback.data.split(":", 1)[1]
+    if master_name not in config.MASTERS:
+        await callback.answer("Мастер не найден", show_alert=True)
+        return
+    custom_prices = await storage.get_all_master_service_prices(master_name)
+    text = (f"{E.MONEY} <b>Цены мастера {html.escape(master_name)}</b>\n\n"
+            "Нажмите на услугу чтобы установить свою цену:\n\n")
+    buttons = []
+    for svc, global_price in config.SERVICES.items():
+        custom = custom_prices.get(svc)
+        if custom is not None:
+            label = f"☆ {svc} — {custom:,} ₸ (база: {global_price:,} ₸)".replace(",", " ")
+        else:
+            label = f"{svc} — {global_price:,} ₸ (глобальная)".replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"edit_mprice:{master_name}:{svc}")])
+    buttons.append([InlineKeyboardButton(text="Сбросить все цены", callback_data=f"reset_mprices:{master_name}")])
+    buttons.append([InlineKeyboardButton(text="Назад", callback_data=f"admin_master_detail:{master_name}")])
+    await edit_with_retry(
+        callback.message, text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("edit_mprice:"))
+async def cb_edit_master_price(callback: CallbackQuery, state: FSMContext):
+    """Ask admin to enter new price for master+service."""
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(messages.ADMIN_ONLY, show_alert=True)
+        return
+    parts = callback.data.split(":", 2)  # edit_mprice:master:service
+    if len(parts) < 3:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    _, master_name, service_name = parts
+    global_price = config.SERVICES.get(service_name, 0)
+    current = await storage.get_master_service_price(master_name, service_name)
+    cur_str = f"{current:,} ₸".replace(",", " ") if current is not None else f"глобальная ({global_price:,} ₸)".replace(",", " ")
+    await state.update_data(master_name=master_name, service_name=service_name)
+    await state.set_state(AdminStates.set_master_price)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Сбросить", callback_data=f"del_mprice:{master_name}:{service_name}"),
+        InlineKeyboardButton(text="Отмена", callback_data=f"master_prices:{master_name}"),
+    ]])
+    await send_with_retry(
+        callback.bot, callback.message.chat.id,
+        f"{E.MONEY} <b>Цена на «{html.escape(service_name)}»</b>\n"
+        f"Мастер: {html.escape(master_name)}\n"
+        f"Текущая: {cur_str}\n\n"
+        "Введите новую цену (число) или нажмите «Сбросить»:",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.set_master_price)
+async def handle_set_master_price(message: Message, state: FSMContext):
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    master_name = data.get("master_name", "")
+    service_name = data.get("service_name", "")
+    text = message.text.strip() if message.text else ""
+    if not text.isdigit() or int(text) <= 0:
+        await send_with_retry(
+            message.bot, message.chat.id,
+            f"{E.EXCLAMATION} Введите положительное целое число.",
+            parse_mode="HTML",
+        )
+        return
+    price = int(text)
+    await storage.set_master_service_price(master_name, service_name, price)
+    await state.clear()
+    await send_with_retry(
+        message.bot, message.chat.id,
+        f"{E.CHECK} <b>Цена установлена</b>\n\n"
+        f"{E.SCISSORS} {html.escape(service_name)}\n"
+        f"{E.MASTER} {html.escape(master_name)}\n"
+        f"{E.MONEY} {price:,} ₸".replace(",", " "),
+        reply_markup=keyboards.admin_kb(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("del_mprice:"))
+async def cb_delete_master_price(callback: CallbackQuery, state: FSMContext):
+    """Reset service price to global for this master."""
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(messages.ADMIN_ONLY, show_alert=True)
+        return
+    parts = callback.data.split(":", 2)
+    if len(parts) < 3:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    _, master_name, service_name = parts
+    await storage.delete_master_service_price(master_name, service_name)
+    await state.clear()
+    await callback.answer(f"Цена сброшена — теперь глобальная", show_alert=True)
+    # Refresh prices screen
+    custom_prices = await storage.get_all_master_service_prices(master_name)
+    text = f"{E.MONEY} <b>Цены мастера {html.escape(master_name)}</b>\n\nНажмите на услугу:"
+    buttons = []
+    for svc, gp in config.SERVICES.items():
+        custom = custom_prices.get(svc)
+        if custom is not None:
+            label = f"☆ {svc} — {custom:,} ₸".replace(",", " ")
+        else:
+            label = f"{svc} — {gp:,} ₸ (гл)".replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"edit_mprice:{master_name}:{svc}")])
+    buttons.append([InlineKeyboardButton(text="Сбросить все", callback_data=f"reset_mprices:{master_name}")])
+    buttons.append([InlineKeyboardButton(text="Назад", callback_data=f"admin_master_detail:{master_name}")])
+    await edit_with_retry(
+        callback.message, text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("reset_mprices:"))
+async def cb_reset_all_master_prices(callback: CallbackQuery):
+    """Reset ALL custom prices for a master to global."""
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(messages.ADMIN_ONLY, show_alert=True)
+        return
+    master_name = callback.data.split(":", 1)[1]
+    for svc in list(config.SERVICES.keys()):
+        await storage.delete_master_service_price(master_name, svc)
+    await callback.answer("Все цены сброшены на глобальные", show_alert=True)
+    await edit_with_retry(
+        callback.message,
+        f"{E.CHECK} <b>Цены сброшены</b>\n\n"
+        f"Теперь для мастера {html.escape(master_name)} действуют глобальные цены.",
+        reply_markup=keyboards.admin_master_detail_kb(master_name),
+        parse_mode="HTML"
+    )

@@ -44,18 +44,16 @@ def masters_kb() -> InlineKeyboardMarkup:
 async def services_kb(master_name: str = "", back: str = "main_menu") -> InlineKeyboardMarkup:
     if master_name:
         service_list = await storage.get_master_services(master_name)
+        master_prices = await storage.get_all_master_service_prices(master_name)
     else:
         service_list = list(SERVICES.keys())
-    
+        master_prices = {}
     buttons = []
     for name in service_list:
-        price = SERVICES.get(name, 0)
-        # MED-01 FIX: actually truncate long names for display (callback_data uses full name)
-        if len(name.encode("utf-8")) > 35:
-            display = name[:16] + "…"
-        else:
-            display = name
-        buttons.append([InlineKeyboardButton(text=f"{display} — {price:,} ₸".replace(",", " "), callback_data=f"service:{name}")])
+        price = master_prices.get(name, SERVICES.get(name, 0))
+        display = (name[:16] + "…") if len(name.encode("utf-8")) > 35 else name
+        badge = (f"☆ {price:,} ₸" if name in master_prices else f"{price:,} ₸").replace(",", " ")
+        buttons.append([InlineKeyboardButton(text=f"{display} — {badge}", callback_data=f"service:{name}")])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -239,6 +237,7 @@ def admin_master_detail_kb(name: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Редактировать", callback_data=f"admin_edit_master:{name}")],
         [InlineKeyboardButton(text="Расписание", callback_data=f"master_schedule:{name}")],
         [InlineKeyboardButton(text="Услуги", callback_data=f"master_services:{name}")],
+        [InlineKeyboardButton(text="Цены мастера", callback_data=f"master_prices:{name}")],
         [InlineKeyboardButton(text="Telegram ID", callback_data=f"admin_set_master_tg:{name}")],
         [InlineKeyboardButton(text="Удалить", callback_data=f"admin_remove_master:{name}")],
         [InlineKeyboardButton(text="Назад", callback_data="admin_masters")],

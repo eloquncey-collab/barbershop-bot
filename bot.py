@@ -6,6 +6,7 @@ from aiogram.types import Message, ErrorEvent
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from config import BOT_TOKEN, load_config_from_db, save_config_to_db
+import db as _db_module
 from storage import init_db, delete_old_scheduler_jobs
 from scheduler import start_scheduler, shutdown_scheduler
 from backup import backup_database, cleanup_old_backups
@@ -110,6 +111,7 @@ async def main():
         except Exception:
             pass
 
+    await _db_module.init_pool()
     await init_db()
     logger.info("Database initialized")
     # FIX: чистим stale slot_locks от прерванных сессий
