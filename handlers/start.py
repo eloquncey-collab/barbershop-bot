@@ -454,6 +454,13 @@ async def cmd_cancel_universal(message: Message, state: FSMContext):
 
     # If user is in FSM state, clear it
     if current_state:
+        # BUG-FIX: release slot_lock if user had a time slot selected
+        data = await state.get_data()
+        if data.get("date") and data.get("time") and data.get("master"):
+            try:
+                await storage.release_slot_lock(data["date"], data["time"], data["master"])
+            except Exception:
+                pass
         await state.clear()
         await send_with_retry(
             message.bot, message.chat.id,
