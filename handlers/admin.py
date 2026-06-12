@@ -907,7 +907,7 @@ async def cb_admin_cancel_booking(callback: CallbackQuery, bot: Bot):
                     )
                 except Exception as _me:
                     logger.error(f"Failed to notify master on admin cancel: {_me}")
-            await edit_with_retry(callback.message, f"Запись {booking_id} отменена.", reply_markup=keyboards.admin_kb())
+            await edit_with_retry(callback.message, f"{E.CHECK} <b>Запись отменена</b>\n\n{E.ID} <code>{booking_id}</code>", reply_markup=keyboards.admin_kb(), parse_mode="HTML")
         else:
             await callback.answer("Запись не найдена или уже не активна", show_alert=True)
             return
@@ -956,7 +956,7 @@ async def cb_admin_complete_booking(callback: CallbackQuery, bot: Bot):
                     await bot.send_message(config.MASTER_IDS[master_name], master_done_text, parse_mode="HTML")
                 except Exception as _me:
                     logger.error(f"Failed to notify master on completion: {_me}")
-            await edit_with_retry(callback.message, f"✅ Запись {booking_id} завершена.\n\n👤 {html.escape(name)} получил +1 визит (всего: {visits})", reply_markup=keyboards.admin_kb(), parse_mode="HTML")
+            await edit_with_retry(callback.message, f"{E.CHECK} <b>Запись завершена</b>\n\n{E.ID} <code>{booking_id}</code>\n{E.USER} {html.escape(name)} получил +1 визит (всего: {visits})", reply_markup=keyboards.admin_kb(), parse_mode="HTML")
         else:
             await callback.answer("Запись не найдена или уже не активна", show_alert=True)
             return

@@ -284,3 +284,17 @@ def skip_comment_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Пропустить", callback_data="skip_comment")],
     ])
+
+
+def cancel_bookings_kb(bookings: list) -> InlineKeyboardMarkup:
+    """Keyboard to cancel one of active bookings (for /cancel command)."""
+    buttons = []
+    for b in bookings:
+        date_str = _format_date(b['date'])
+        label = f"{date_str} {b['time']} — {b['master'][:12]}"
+        buttons.append([InlineKeyboardButton(
+            text=f"❌ {label}",
+            callback_data=f"cancel_book:{b['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="← Назад", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

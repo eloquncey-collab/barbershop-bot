@@ -354,8 +354,6 @@ async def cmd_help(message: Message):
         "• /waitlist - Мои записи в листе ожидания",
         "• /cancel - Отменить запись (с указанием ID)",
         "• /help - Эта справка",
-        "• /admin - Панель администратора (только для админов)",
-        "",
         f"<b>{E.IDEA} Как записаться:</b>",
         f"1. Нажмите «{E.SCISSORS} Записаться» в главном меню",
         "2. Выберите мастера",
@@ -423,44 +421,68 @@ async def cmd_waitlist(message: Message):
 async def cmd_cancel_universal(message: Message, state: FSMContext):
     """Universal cancel command - works in any state"""
     current_state = await state.get_state()
-    
+
     # If user is in FSM state, clear it
     if current_state:
         await state.clear()
         await send_with_retry(
             message.bot, message.chat.id,
-            "❌ Действие отменено. Возвращаемся в главное меню.",
-            reply_markup=keyboards.back_to_main_kb()
+            f"{E.CHECK} <b>Действие отменено</b>\n\nВозвращаемся в главное меню.",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
         )
         return
-    
-    # Otherwise, handle booking cancellation
+
     if not message.text:
-        await send_with_retry(message.bot, message.chat.id, "Введите команду /cancel или /cancel ID")
+        await send_with_retry(message.bot, message.chat.id, messages.NO_ACTIVE_BOOKING)
         return
+
     parts = message.text.split()
     if len(parts) > 1:
+        # Direct cancel by ID
         booking_id = parts[1].strip()
         booking = await storage.cancel_booking(booking_id, telegram_id=message.from_user.id)
         if booking:
             await scheduler.cancel_reminders(booking_id)
+            date_str = keyboards._format_date(booking['date'])
             await send_with_retry(
                 message.bot, message.chat.id,
-                f"✅ Запись {booking_id} отменена.\n\n"
-                f"{keyboards._format_date(booking['date'])} {booking['time']} — {html.escape(booking['master'])}",
+                f"{E.CHECK} <b>Запись отменена!</b>\n\n"
+                f"{E.CALENDAR} {date_str} в {booking['time']}\n"
+                f"{E.MASTER} {html.escape(booking['master'])}\n"
+                f"{E.BARBER} {html.escape(booking['service'])}\n\n"
+                f"{E.IDEA} Вы можете записаться снова в любое время!",
                 reply_markup=keyboards.back_to_main_kb(),
-                parse_mode="HTML",
+                parse_mode="HTML"
             )
         else:
-            await send_with_retry(message.bot, message.chat.id, "❌ Запись не найдена или уже отменена.")
-    else:
-        bookings = await storage.get_user_bookings(message.from_user.id)
-        if not bookings:
-            await send_with_retry(message.bot, message.chat.id, messages.NO_ACTIVE_BOOKING)
-            return
-        text = "📋 Ваши активные записи:\n\n"
-        for b in bookings:
-            text += f"• {b['id']}: {keyboards._format_date(b['date'])} {b['time']} — {html.escape(b['master'])}\n"
-        text += "\nДля отмены отправьте: /cancel ID"
-        # BUG-H FIX: Add parse_mode="HTML" to handle special characters in names
-        await send_with_retry(message.bot, message.chat.id, text, reply_markup=keyboards.back_to_main_kb(), parse_mode="HTML")
+            await send_with_retry(
+                message.bot, message.chat.id,
+                f"{E.CROSS} <b>Запись не найдена</b>\n\nВозможно, она уже отменена.",
+                reply_markup=keyboards.back_to_main_kb(),
+                parse_mode="HTML"
+            )
+        return
+
+    # No ID given — show list with one-tap cancel buttons
+    bookings = await storage.get_user_bookings(message.from_user.id)
+    if not bookings:
+        await send_with_retry(
+            message.bot, message.chat.id,
+            f"{E.INFO} <b>Нет активных записей</b>\n\nЗапишитесь через главное меню!",
+            reply_markup=keyboards.back_to_main_kb(),
+            parse_mode="HTML"
+        )
+        return
+
+    text = f"{E.LIST} <b>Выберите запись для отмены:</b>\n\n"
+    for b in bookings:
+        date_str = keyboards._format_date(b['date'])
+        text += f"{E.CALENDAR} <b>{date_str}</b> в {b['time']} — {html.escape(b['master'])}\n"
+
+    await send_with_retry(
+        message.bot, message.chat.id,
+        text,
+        reply_markup=keyboards.cancel_bookings_kb(bookings),
+        parse_mode="HTML"
+    )
