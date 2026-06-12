@@ -311,6 +311,9 @@ async def cancel_booking(booking_id: str, telegram_id: int = None) -> dict | Non
                 return None
             booking = dict(row)
             await db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
+            # R1 FIX: release any slot_lock for this booking
+            await db.execute("DELETE FROM slot_locks WHERE date=? AND time=? AND master=?",
+                             (booking['date'], booking['time'], booking['master']))
             
             # FIX BL-04: Only cancel waitlist for the exact cancelled slot (not all user waitlists)
             # Waitlist entries on OTHER slots must remain active so user can still get notified.

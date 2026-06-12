@@ -117,6 +117,9 @@ async def send_review_request(bot, booking: dict):
             reply_markup=keyboards.review_kb(booking["id"]),
             parse_mode="HTML",
         )
+    except TelegramForbiddenError:
+        # R5 FIX: user blocked bot - cancel future reminders
+        logger.warning(f"User {booking['telegram_id']} blocked bot - review request skipped")
     except Exception as e:
         logger.error(f"Failed to send review request: {e}")
 
