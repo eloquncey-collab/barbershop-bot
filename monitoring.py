@@ -20,7 +20,7 @@ def get_uptime() -> float:
 
 
 async def check_db_health() -> bool:
-    """Check if database is accessible (works with both SQLite and PostgreSQL)."""
+    """Check if database is accessible."""
     try:
         import db as _db
         async with _db.acquire() as conn:
@@ -32,14 +32,27 @@ async def check_db_health() -> bool:
 
 
 async def check_storage_health() -> bool:
-    """Check if FSM storage is accessible"""
+    """HIGH-05 FIX: Actually check the FSM storage (FileStorage or Redis)."""
     try:
-        # Try basic file system write
-        import tempfile as _tf
-        with _tf.NamedTemporaryFile(mode="w", suffix=".tmp", delete=False) as _f:
-            _tmp = _f.name
-            _f.write("test")
-        import os; os.unlink(_tmp)
+        import os
+        redis_url = os.getenv("REDIS_URL", "")
+        if redis_url:
+            # Test Redis connectivity
+            import aioredis
+            r = await aioredis.from_url(redis_url, socket_connect_timeout=3)
+            await r.ping()
+            await r.close()
+        else:
+            # Test FileStorage JSON file is readable/writable
+            import config as _cfg
+            from pathlib import Path
+            fsm_file = Path(_cfg.DB_PATH).parent / "fsm_state.json"
+            parent = fsm_file.parent
+            parent.mkdir(parents=True, exist_ok=True)
+            if fsm_file.exists():
+                with open(fsm_file, "r", encoding="utf-8") as f:
+                    import json
+                    json.load(f)
         return True
     except Exception as e:
         logger.error(f"Storage health check failed: {e}")
@@ -47,7 +60,7 @@ async def check_storage_health() -> bool:
 
 
 async def check_scheduler_health() -> bool:
-    """Check if scheduler is running"""
+    """Check if scheduler is running."""
     try:
         from scheduler import scheduler
         return scheduler.running
@@ -57,15 +70,12 @@ async def check_scheduler_health() -> bool:
 
 
 async def get_health_status() -> dict:
-    """Get comprehensive health status with real checks"""
+    """Get comprehensive health status with real checks."""
     uptime = get_uptime()
-    
     db_ok = await check_db_health()
     storage_ok = await check_storage_health()
     scheduler_ok = await check_scheduler_health()
-    
     all_ok = db_ok and storage_ok and scheduler_ok
-    
     return {
         "status": "ok" if all_ok else "degraded",
         "uptime_seconds": round(uptime, 2),

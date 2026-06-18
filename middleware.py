@@ -11,18 +11,17 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitMiddleware(BaseMiddleware):
-    """Таск 19: Hybrid rate limiter — in-memory с быстрым доступом,
-    при перезапуске запись сбрасываются (OK для барбершопа).
-    HIGH-4 FIX: убран глобальный _lock (боттлнек при нагрузке). asyncio event loop однопоточный,
-    dict-операции атомарны внутри одного coroutine."""
+    """Hybrid rate limiter -- in-memory with fast access.
+    MED-03 FIX: GC runs every 100 events (not 1000) to prevent RAM growth."""
     def __init__(self, max_requests: int = 20, window: int = 60):
         self.max_requests = max_requests
         self.window = window
         self.user_requests: dict[int, list[float]] = {}
+        self._event_counter = 0
         super().__init__()
 
     def _cleanup_old_entries(self, now: float) -> None:
-        """HIGH-6 FIX: удаляем записи пользователей без недавних запросов, чтобы не росла RAM."""
+        """Remove entries for users with no recent requests."""
         cutoff = now - self.window
         stale_keys = [uid for uid, ts_list in self.user_requests.items()
                       if not ts_list or ts_list[-1] < cutoff]
@@ -34,20 +33,19 @@ class RateLimitMiddleware(BaseMiddleware):
         if user_id is None:
             return await handler(event, data)
 
-        # Skip rate limiting for administrators
         if user_id in config.ADMIN_IDS:
             return await handler(event, data)
 
         now = time.time()
 
-        # Periodic GC: clean up stale entries every ~1000 events
-        if len(self.user_requests) > 1000:
+        # MED-03 FIX: periodic GC every 100 events regardless of dict size
+        self._event_counter += 1
+        if self._event_counter % 100 == 0:
             self._cleanup_old_entries(now)
 
         if user_id not in self.user_requests:
             self.user_requests[user_id] = []
 
-        # Filter expired entries for this user
         self.user_requests[user_id] = [
             t for t in self.user_requests[user_id] if (now - t) < self.window
         ]

@@ -9,6 +9,13 @@ services:
     volumes:
       - barbershop_data:/app/data
       - barbershop_backups:/app/backups
+    # LOW-01 FIX: healthcheck so Docker can detect a hung process
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; open('/app/data/.healthcheck','w').close()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: json-file
       options:

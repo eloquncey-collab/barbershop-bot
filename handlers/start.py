@@ -443,6 +443,61 @@ async def cmd_waitlist(message: Message):
         )
 
 
+
+
+@router.callback_query(F.data == "invite_friend")
+async def cb_invite_friend(callback: CallbackQuery):
+    """REFERRAL: Персональная реферальная ссылка + статистика.
+    ref_code создаётся для любого пользователя, даже если он ещё не посещал барбершоп.
+    E.* (premium tg-emoji) встроены в messages.INVITE_FRIEND напрямую; в кнопках emoji не используются.
+    """
+    telegram_id = callback.from_user.id
+    first_name = callback.from_user.first_name or ""
+
+    try:
+        ref_code = await storage.ensure_user_ref_code(telegram_id, first_name)
+        loyalty = await storage.get_loyalty(telegram_id)
+        referral_count = await storage.get_referral_count(telegram_id)
+        bonuses = loyalty["bonuses"] if loyalty else 0
+
+        bot_info = await callback.bot.get_me()
+        bot_username = bot_info.username
+        ref_link = f"https://t.me/{bot_username}?start=ref_{ref_code}"
+
+        # E.* встроены в сам шаблон INVITE_FRIEND — передаём только данные
+        text = messages.INVITE_FRIEND.format(
+            link=ref_link,
+            bonus=config.REFERRAL_BONUS,
+            count=referral_count,
+            bonuses=bonuses,
+        )
+
+        # INVITE_FRIEND_SHARE — для switch_inline_query (почти plain text, не HTML)
+        share_text = messages.INVITE_FRIEND_SHARE.format(
+            name=html.escape(config.BARBERSHOP_NAME),
+            link=ref_link,
+        )
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Поделиться ссылкой",
+                switch_inline_query=share_text[:512],
+            )],
+            [InlineKeyboardButton(text="Назад", callback_data="main_menu")],
+        ])
+
+        await edit_with_retry(
+            callback.message, text,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Error in cb_invite_friend: {e}")
+        await callback.answer("Ошибка. Попробуйте позже.", show_alert=True)
+    await callback.answer()
+
+
 @router.message(Command("cancel"))
 async def cmd_cancel_universal(message: Message, state: FSMContext):
     """Universal cancel command - works in any state"""

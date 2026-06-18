@@ -7,6 +7,21 @@ import messages
 import storage
 
 
+def _safe_cb(prefix: str, value: str, max_bytes: int = 62) -> str:
+    """HIGH-03 FIX: Truncate callback_data so prefix+value fits within Telegram 64-byte limit.
+    max_bytes=62 leaves 2 bytes safety margin.
+    """
+    available = max_bytes - len(prefix.encode('utf-8'))
+    if available <= 0:
+        return prefix[:max_bytes]
+    encoded = value.encode('utf-8')
+    if len(encoded) <= available:
+        return prefix + value
+    # Safe truncation at UTF-8 character boundary
+    truncated = encoded[:available].decode('utf-8', errors='ignore')
+    return prefix + truncated
+
+
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Записаться", callback_data="book")],
@@ -18,9 +33,9 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Наши мастера", callback_data="masters"),
             InlineKeyboardButton(text="Контакты", callback_data="contacts")
         ],
+        [InlineKeyboardButton(text="Пригласить друга", callback_data="invite_friend")],
         [InlineKeyboardButton(text="Позвонить", callback_data="call")],
     ])
-
 
 def masters_kb() -> InlineKeyboardMarkup:
     buttons = []
@@ -35,7 +50,7 @@ def masters_kb() -> InlineKeyboardMarkup:
             # Task 5: всегда имя в callback_data (не индекс) — индекс ломался при изменении списка мастеров
             # Для отображения текст кнопки обрезаем длинные имена (max 40 байт UTF-8 = ~20 кириллицей)
             display_name = name if len(name.encode("utf-8")) <= 40 else name.encode("utf-8")[:18].decode("utf-8", errors="ignore") + "…"
-            row.append(InlineKeyboardButton(text=f"{display_name} • {years} л.", callback_data=f"master:{name}"))
+            row.append(InlineKeyboardButton(text=f"{display_name} • {years} л.", callback_data=_safe_cb("master:", name)))
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -53,7 +68,7 @@ async def services_kb(master_name: str = "", back: str = "main_menu") -> InlineK
         price = master_prices.get(name, SERVICES.get(name, 0))
         display = (name[:16] + "…") if len(name.encode("utf-8")) > 35 else name
         badge = (f"☆ {price:,} ₸" if name in master_prices else f"{price:,} ₸").replace(",", " ")
-        buttons.append([InlineKeyboardButton(text=f"{display} — {badge}", callback_data=f"service:{name}")])
+        buttons.append([InlineKeyboardButton(text=f"{display} — {badge}", callback_data=_safe_cb("service:", name))])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -225,7 +240,7 @@ def admin_masters_kb() -> InlineKeyboardMarkup:
         row = []
         for j in range(i, min(i + 2, len(master_list))):
             name = master_list[j]
-            row.append(InlineKeyboardButton(text=name, callback_data=f"admin_master_detail:{name}"))
+            row.append(InlineKeyboardButton(text=name, callback_data=_safe_cb("admin_master_detail:", name)))
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="Добавить мастера", callback_data="admin_add_master")])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin")])
@@ -234,12 +249,12 @@ def admin_masters_kb() -> InlineKeyboardMarkup:
 
 def admin_master_detail_kb(name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Редактировать", callback_data=f"admin_edit_master:{name}")],
-        [InlineKeyboardButton(text="Расписание", callback_data=f"master_schedule:{name}")],
-        [InlineKeyboardButton(text="Услуги", callback_data=f"master_services:{name}")],
-        [InlineKeyboardButton(text="Цены мастера", callback_data=f"master_prices:{name}")],
-        [InlineKeyboardButton(text="Telegram ID", callback_data=f"admin_set_master_tg:{name}")],
-        [InlineKeyboardButton(text="Удалить", callback_data=f"admin_remove_master:{name}")],
+        [InlineKeyboardButton(text="Редактировать", callback_data=_safe_cb("admin_edit_master:", name))],
+        [InlineKeyboardButton(text="Расписание", callback_data=_safe_cb("master_schedule:", name))],
+        [InlineKeyboardButton(text="Услуги", callback_data=_safe_cb("master_services:", name))],
+        [InlineKeyboardButton(text="Цены мастера", callback_data=_safe_cb("master_prices:", name))],
+        [InlineKeyboardButton(text="Telegram ID", callback_data=_safe_cb("admin_set_master_tg:", name))],
+        [InlineKeyboardButton(text="Удалить", callback_data=_safe_cb("admin_remove_master:", name))],
         [InlineKeyboardButton(text="Назад", callback_data="admin_masters")],
     ])
 
@@ -255,8 +270,8 @@ def admin_services_kb() -> InlineKeyboardMarkup:
 
 def admin_service_detail_kb(name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Редактировать", callback_data=f"admin_edit_service:{name}")],
-        [InlineKeyboardButton(text="Удалить", callback_data=f"admin_remove_service:{name}")],
+        [InlineKeyboardButton(text="Редактировать", callback_data=_safe_cb("admin_edit_service:", name))],
+        [InlineKeyboardButton(text="Удалить", callback_data=_safe_cb("admin_remove_service:", name))],
         [InlineKeyboardButton(text="Назад", callback_data="admin_services")],
     ])
 

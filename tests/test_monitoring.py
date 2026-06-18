@@ -71,10 +71,15 @@ async def test_check_storage_ok():
     assert await monitoring.check_storage_health() is True
 
 @pytest.mark.asyncio
-async def test_check_storage_fail():
+async def test_check_storage_fail(tmp_path, monkeypatch):
+    """check_storage_health returns False when FSM JSON file is corrupt."""
     import monitoring
-    with patch("tempfile.NamedTemporaryFile", side_effect=OSError("err")):
-        result = await monitoring.check_storage_health()
+    import config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "db.db"))
+    fsm_file = tmp_path / "fsm_state.json"
+    fsm_file.write_bytes(b"\xff\xfe broken json {{{")
+    monkeypatch.setenv("REDIS_URL", "")
+    result = await monitoring.check_storage_health()
     assert result is False
 
 @pytest.mark.asyncio

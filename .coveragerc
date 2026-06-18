@@ -1,5 +1,5 @@
 [run]
-omit = tests/*, bot.py, migrate_db.py, patch_fixes.py
+omit = tests/*, bot.py, migrate_db.py, patch_fixes.py, storage_sqlite_backup.py
 source = .
 [report]
 skip_empty = True

@@ -699,6 +699,53 @@ async def get_loyalty_list() -> list[dict]:
         return await conn.fetch("SELECT * FROM loyalty ORDER BY visits DESC")
 
 
+
+async def ensure_user_ref_code(telegram_id: int, name: str = "") -> str:
+    """Ensure the user has a loyalty record with a ref_code.
+    Creates one if it doesn't exist yet (REFERRAL FIX: ref_code available
+    to all users, not just those who completed a booking).
+    Returns the ref_code.
+    """
+    import uuid as _uuid
+    async with _db.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ref_code FROM loyalty WHERE telegram_id=?", telegram_id
+        )
+        if row and row["ref_code"]:
+            return row["ref_code"]
+        # Generate a new unique ref_code
+        now = get_now(config.TIMEZONE).isoformat()
+        ref_code = _uuid.uuid4().hex[:8]
+        if _db.is_postgres():
+            await conn.execute(
+                "INSERT INTO loyalty (telegram_id, name, visits, bonuses, ref_code, updated_at) "
+                "VALUES (?, ?, 0, 0, ?, ?) ON CONFLICT (telegram_id) DO UPDATE SET ref_code=? WHERE loyalty.ref_code IS NULL",
+                telegram_id, name, ref_code, now, ref_code,
+            )
+        else:
+            await conn.execute(
+                "INSERT OR IGNORE INTO loyalty (telegram_id, name, visits, bonuses, ref_code, updated_at) "
+                "VALUES (?, ?, 0, 0, ?, ?)",
+                telegram_id, name, ref_code, now,
+            )
+            # If record existed but had no ref_code, set it
+            await conn.execute(
+                "UPDATE loyalty SET ref_code=? WHERE telegram_id=? AND (ref_code IS NULL OR ref_code='')",
+                ref_code, telegram_id,
+            )
+            await conn.commit()
+        # Re-read to get actual value (race-safe)
+        actual = await conn.fetchval("SELECT ref_code FROM loyalty WHERE telegram_id=?", telegram_id)
+        return actual or ref_code
+
+
+async def get_referral_count(telegram_id: int) -> int:
+    """Return how many users registered via this user's referral link."""
+    async with _db.acquire() as conn:
+        return (await conn.fetchval(
+            "SELECT COUNT(*) FROM referrals WHERE referrer_id=?", telegram_id
+        )) or 0
+
 async def add_referral(referrer_id: int, referred_id: int) -> bool:
     if referrer_id == referred_id:
         return False
