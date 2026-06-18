@@ -1348,9 +1348,11 @@ async def cb_save_master_days(callback: CallbackQuery, state: FSMContext):
             )
         else:
             await callback.answer("Ошибка сохранения", show_alert=True)
+            return
     except Exception as e:
         logger.error(f"Error in save_master_days: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
+        return
     await callback.answer()
 
 
@@ -1400,6 +1402,7 @@ async def cb_master_services(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"Error in master_services: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
+        return
     await callback.answer()
 
 
@@ -1486,9 +1489,11 @@ async def cb_save_master_services(callback: CallbackQuery, state: FSMContext):
             )
         else:
             await callback.answer("Ошибка сохранения", show_alert=True)
+            return
     except Exception as e:
         logger.error(f"Error in save_master_services: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
+        return
     await callback.answer()
 
 
