@@ -1,6 +1,15 @@
 [run]
-omit = tests/*, bot.py, migrate_db.py, patch_fixes.py, storage_sqlite_backup.py
-source = .
+omit =
+    storage_sqlite_backup.py
+    bot.py
+    patch_fixes.py
+    migrate_db.py
+    tests/*
+
 [report]
-skip_empty = True
-skip_covered = True
+omit =
+    storage_sqlite_backup.py
+    bot.py
+    patch_fixes.py
+    migrate_db.py
+    tests/*

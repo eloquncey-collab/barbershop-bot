@@ -1,4 +1,4 @@
-
+﻿
 """Tests for handlers/booking.py - FSM booking flow"""
 import pytest
 import sys, pathlib
@@ -51,8 +51,13 @@ class TestGenerateTimeSlots:
     def test_sunday_has_shorter_hours(self):
         from handlers.booking import _generate_time_slots
         import config
-        slots_sun = _generate_time_slots("2026-12-06")  # Sunday
-        slots_mon = _generate_time_slots("2026-12-07")  # Monday
+        from unittest.mock import patch
+        canonical = {"monday": (10, 21), "tuesday": (10, 21), "wednesday": (10, 21),
+                     "thursday": (10, 21), "friday": (10, 21), "saturday": (10, 21),
+                     "sunday": (11, 19)}
+        with patch.object(config, "WORKING_HOURS", canonical):
+            slots_sun = _generate_time_slots("2026-12-06")  # Sunday
+            slots_mon = _generate_time_slots("2026-12-07")  # Monday
         assert len(slots_sun) < len(slots_mon)
 
     def test_invalid_date_falls_back(self):
@@ -253,3 +258,4 @@ class TestCbConfirmDeprecated:
         fsm = make_fsm(state=None)
         await cb_confirm_deprecated(cb, fsm)
         fsm.clear.assert_called_once()
+
